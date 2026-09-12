@@ -78,10 +78,42 @@ button:disabled { opacity: .55; cursor: wait; }
 .detail-row span { color: #788391; }
 .detail-row strong { color: #344252; font-weight: 600; text-align: right; }
 
+.scan-panel {
+  margin-top: 22px;
+  padding: 30px;
+  background: #fff;
+  border: 1px solid #e0e5ea;
+  border-radius: 12px;
+}
+.scan-heading { display: flex; align-items: center; justify-content: space-between; gap: 20px; }
+.scan-heading .eyebrow { margin-bottom: 6px; }
+h2 { margin: 0; font-size: 21px; letter-spacing: -.02em; }
+.fixture-badge { padding: 7px 10px; border-radius: 6px; background: #edf2f5; color: #456070; font-size: 12px; }
+.scan-explanation, .scan-note { color: #6b7785; font-size: 13px; line-height: 1.6; }
+.scan-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-top: 20px; }
+.scan-controls label { color: #596777; font-size: 13px; }
+.scan-controls select { padding: 9px 11px; border: 1px solid #d8e0e6; border-radius: 7px; background: #f6f8f9; color: #344252; font: inherit; font-size: 13px; }
+.scan-controls select:disabled { opacity: 1; }
+.scan-controls button { padding: 9px 14px; }
+.scan-controls button:first-of-type { background: #233e59; border-color: #233e59; color: #fff; }
+.scan-controls button:first-of-type:hover:not(:disabled) { background: #355773; }
+.scan-error { color: #a63838; font-size: 13px; }
+.scan-progress { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 12px; margin-top: 24px; padding: 18px; background: #f5f7f9; border-radius: 8px; }
+.scan-progress div { display: flex; flex-direction: column; gap: 5px; min-width: 0; }
+.scan-progress span { color: #778390; font-size: 12px; }
+.scan-progress strong { color: #344252; font-size: 14px; overflow-wrap: anywhere; }
+.result-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 28px; margin-top: 22px; }
+h3 { margin: 0 0 12px; font-size: 14px; }
+.result-list { display: grid; gap: 10px; margin: 0; padding-left: 18px; font-size: 12px; }
+.result-list li { padding-left: 3px; overflow-wrap: anywhere; }
+.result-list li strong { float: right; margin-left: 12px; color: #526476; white-space: nowrap; }
+
 @media (max-width: 600px) {
   .workspace { padding-top: 48px; }
   .status-panel { align-items: stretch; flex-direction: column; padding: 22px; }
   .status-panel button { align-self: flex-start; }
   .details { padding: 4px 22px; }
+  .scan-panel { padding: 22px; }
+  .scan-progress { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .result-grid { grid-template-columns: 1fr; }
 }
-

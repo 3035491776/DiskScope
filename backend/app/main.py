@@ -4,6 +4,8 @@ from fastapi.staticfiles import StaticFiles
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from app.api.health import router as health_router
+from app.api.scans import router as scans_router
+from app.api.session import router as session_router
 from app.core.config import APP_NAME, APP_VERSION, FRONTEND_DIST, HOST, PORT
 
 
@@ -16,6 +18,8 @@ app = FastAPI(
 )
 app.add_middleware(TrustedHostMiddleware, allowed_hosts=[HOST])
 app.include_router(health_router)
+app.include_router(session_router)
+app.include_router(scans_router)
 
 
 @app.middleware("http")

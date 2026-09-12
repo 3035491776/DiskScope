@@ -4,6 +4,8 @@ frontend/dist/
 data/*
 !data/.gitkeep
 logs/
+tests/fixtures/sample_disk/
+tests/fixtures/medium_disk/
 __pycache__/
 *.pyc
 .env

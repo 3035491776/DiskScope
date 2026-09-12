@@ -1,7 +1,9 @@
-"""Start the local M0 service and open its verified web page."""
+"""Start the local service and open its verified web page."""
 
 import json
 import logging
+import os
+import secrets
 import socket
 import subprocess
 import sys
@@ -10,6 +12,7 @@ import urllib.error
 import urllib.request
 import webbrowser
 from pathlib import Path
+from urllib.parse import quote
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -74,6 +77,9 @@ def main() -> int:
         "--workers", "1", "--no-access-log",
     ]
     logging.info("Starting backend on %s:%s", HOST, PORT)
+    launch_token = secrets.token_urlsafe(32)
+    child_environment = os.environ.copy()
+    child_environment["DISKSCOPE_BOOTSTRAP_TOKEN"] = launch_token
     try:
         with (LOGS / "backend.log").open("a", encoding="utf-8") as backend_log:
             process = subprocess.Popen(
@@ -81,17 +87,23 @@ def main() -> int:
                 cwd=ROOT,
                 stdout=backend_log,
                 stderr=subprocess.STDOUT,
+                env=child_environment,
             )
             try:
                 wait_for_health(process)
                 logging.info("Backend health check passed")
                 print(f"DiskScope is ready: {BASE_URL}/")
                 try:
-                    browser_opened = webbrowser.open(f"{BASE_URL}/")
+                    browser_opened = webbrowser.open(
+                        f"{BASE_URL}/#bootstrap={quote(launch_token)}"
+                    )
                 except (OSError, webbrowser.Error):
                     browser_opened = False
                 if not browser_opened:
-                    print(f"Open this address in your browser: {BASE_URL}/")
+                    print(
+                        "Open this one-time local address in your browser: "
+                        f"{BASE_URL}/#bootstrap={quote(launch_token)}"
+                    )
                 return process.wait()
             except KeyboardInterrupt:
                 print("Stopping DiskScope...")
