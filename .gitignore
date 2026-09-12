@@ -1,0 +1,12 @@
+.venv/
+node_modules/
+frontend/dist/
+data/*
+!data/.gitkeep
+logs/
+__pycache__/
+*.pyc
+.env
+.env.*
+.vscode/
+.idea/
