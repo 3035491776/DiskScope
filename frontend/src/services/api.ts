@@ -45,6 +45,7 @@ export interface ScanStatus {
   skipped_count: number
   errors_count: number
   errors: Record<string, { count: number; samples: string[] }>
+  exclusions: Record<string, { count: number; samples: string[] }>
   cancel_requested: boolean
   error_code: string | null
   error_message: string | null
@@ -102,11 +103,16 @@ export async function establishSession(): Promise<boolean> {
   return state.ready
 }
 
-export function createScan(): Promise<{ scan_id: string; state: string }> {
+export type ScanTarget = 'fixture' | 'project'
+export const PROJECT_WORKSPACE_PATH = 'D:\\Artilius\\Codex\\Windows-C-clear'
+
+export function createScan(target: ScanTarget = 'fixture'): Promise<{ scan_id: string; state: string }> {
   return apiJson('/api/v1/scans', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ root: 'tests/fixtures/sample_disk' }),
+    body: JSON.stringify({
+      root: target === 'project' ? PROJECT_WORKSPACE_PATH : 'tests/fixtures/sample_disk',
+    }),
   })
 }
 
@@ -118,9 +124,9 @@ export function cancelScan(scanId: string): Promise<ScanStatus> {
   return apiJson(`/api/v1/scans/${encodeURIComponent(scanId)}/cancel`, { method: 'POST' })
 }
 
-export async function getTopFiles(scanId: string): Promise<FileItem[]> {
+export async function getTopFiles(scanId: string, limit = 10): Promise<FileItem[]> {
   const result = await apiJson<{ items: FileItem[] }>(
-    `/api/v1/scans/${encodeURIComponent(scanId)}/top?kind=file&limit=10`,
+    `/api/v1/scans/${encodeURIComponent(scanId)}/top?kind=file&limit=${limit}`,
   )
   return result.items
 }

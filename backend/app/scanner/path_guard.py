@@ -6,6 +6,9 @@ from app.core.config import PROJECT_ROOT
 
 
 FIXTURE_ROOT = PROJECT_ROOT / "tests" / "fixtures"
+# Temporary M1.5 developer allowlist. Only this exact root may be requested via API.
+ALLOWED_REAL_ROOTS = (Path(r"D:\Artilius\Codex\Windows-C-clear"),)
+PROJECT_ROOT_LABEL = "project_workspace"
 
 
 class InvalidScanRoot(ValueError):
@@ -18,37 +21,67 @@ def is_reparse_point(info: os.stat_result) -> bool:
     )
 
 
-def validate_scan_root(raw_root: str) -> tuple[Path, str]:
-    if not raw_root or "\x00" in raw_root:
-        raise InvalidScanRoot("A fixture directory is required.")
-    windows_path = PureWindowsPath(raw_root)
-    if raw_root.startswith("\\\\") or windows_path.drive.startswith("\\\\"):
+def _normalized_path(raw_path: str) -> Path:
+    if not raw_path or "\x00" in raw_path:
+        raise InvalidScanRoot("A scan directory is required.")
+    windows_path = PureWindowsPath(raw_path)
+    if raw_path.startswith("\\\\") or windows_path.drive.startswith("\\\\"):
         raise InvalidScanRoot("UNC and device paths are not allowed.")
+    supplied = Path(raw_path)
+    return Path(os.path.abspath(supplied if supplied.is_absolute() else PROJECT_ROOT / supplied))
 
-    supplied = Path(raw_root)
-    lexical = Path(os.path.abspath(supplied if supplied.is_absolute() else PROJECT_ROOT / supplied))
-    try:
-        relative_project_path = lexical.relative_to(PROJECT_ROOT)
-        fixture_base = FIXTURE_ROOT.resolve(strict=True)
-        fixture_base.relative_to(PROJECT_ROOT)
-        resolved = lexical.resolve(strict=True)
-        resolved.relative_to(fixture_base)
-    except (OSError, ValueError) as exc:
-        raise InvalidScanRoot("Only tests/fixtures and its subdirectories may be scanned.") from exc
 
-    current = PROJECT_ROOT
+def _assert_no_reparse(start: Path, relative_parts: tuple[str, ...]) -> None:
+    current = start
     try:
-        for component in relative_project_path.parts:
+        if is_reparse_point(os.lstat(current)):
+            raise InvalidScanRoot("Reparse points are not allowed in a scan path.")
+        for component in relative_parts:
             current /= component
             if is_reparse_point(os.lstat(current)):
-                raise InvalidScanRoot("Reparse points are not allowed in a scan root.")
+                raise InvalidScanRoot("Reparse points are not allowed in a scan path.")
     except OSError as exc:
-        raise InvalidScanRoot("The fixture path is unavailable.") from exc
-    if not resolved.is_dir():
-        raise InvalidScanRoot("The scan root must be a directory.")
-    return resolved, relative_project_path.as_posix()
+        raise InvalidScanRoot("The scan path is unavailable.") from exc
 
 
-def assert_safe_directory(path: Path) -> None:
-    """Recheck a queued directory immediately before enumerating it."""
-    validate_scan_root(str(path))
+def validate_scan_root(raw_root: str) -> tuple[Path, str]:
+    lexical = _normalized_path(raw_root)
+    try:
+        resolved = lexical.resolve(strict=True)
+        if not resolved.is_dir():
+            raise InvalidScanRoot("The scan root must be a directory.")
+
+        if lexical == PROJECT_ROOT:
+            if not any(
+                lexical == allowed and resolved == allowed.resolve(strict=True)
+                for allowed in ALLOWED_REAL_ROOTS
+            ):
+                raise InvalidScanRoot("The project workspace is not allowlisted.")
+            _assert_no_reparse(lexical, ())
+            return resolved, PROJECT_ROOT_LABEL
+
+        relative_project_path = lexical.relative_to(PROJECT_ROOT)
+        fixture_base = FIXTURE_ROOT.resolve(strict=True)
+        resolved.relative_to(fixture_base)
+        _assert_no_reparse(PROJECT_ROOT, relative_project_path.parts)
+        return resolved, relative_project_path.as_posix()
+    except (OSError, ValueError) as exc:
+        if isinstance(exc, InvalidScanRoot):
+            raise
+        raise InvalidScanRoot(
+            "Only tests/fixtures or the exact allowlisted project workspace may be scanned."
+        ) from exc
+
+
+def assert_safe_directory(root: Path, path: Path) -> None:
+    """Recheck each queued directory without broadening API root authorization."""
+    approved_root, _ = validate_scan_root(str(root))
+    lexical = _normalized_path(str(path))
+    try:
+        relative = lexical.relative_to(approved_root)
+        lexical.resolve(strict=True).relative_to(approved_root)
+        _assert_no_reparse(approved_root, relative.parts)
+    except (OSError, ValueError) as exc:
+        if isinstance(exc, InvalidScanRoot):
+            raise
+        raise InvalidScanRoot("A queued directory left the approved scan root.") from exc

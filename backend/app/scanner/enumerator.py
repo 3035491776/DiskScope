@@ -7,8 +7,10 @@ from threading import Event
 from typing import Iterator
 
 from app.scanner.errors import classify_os_error
+from app.scanner.exclusions import project_exclusion
 from app.scanner.models import FileMetadata
 from app.scanner.path_guard import InvalidScanRoot, assert_safe_directory, is_reparse_point
+from app.core.config import PROJECT_ROOT
 
 
 @dataclass(frozen=True)
@@ -28,7 +30,13 @@ class ScanProblem:
     relative_path: str
 
 
-ScanEvent = DirectorySeen | FileSeen | ScanProblem
+@dataclass(frozen=True)
+class ExcludedPath:
+    rule: str
+    relative_path: str
+
+
+ScanEvent = DirectorySeen | FileSeen | ScanProblem | ExcludedPath
 
 
 class RootUnavailable(OSError):
@@ -43,10 +51,10 @@ def enumerate_metadata(root: Path, cancel: Event) -> Iterator[ScanEvent]:
             return
         path, relative_path, parent = pending.pop()
         try:
-            assert_safe_directory(path)
+            assert_safe_directory(root, path)
         except InvalidScanRoot as exc:
             if not relative_path:
-                raise RootUnavailable("The fixture root became unavailable.") from exc
+                raise RootUnavailable("The scan root became unavailable.") from exc
             yield ScanProblem("INVALID_PATH", relative_path)
             continue
 
@@ -60,6 +68,11 @@ def enumerate_metadata(root: Path, cancel: Event) -> Iterator[ScanEvent]:
                     child_relative = (
                         f"{relative_path}/{entry.name}" if relative_path else entry.name
                     )
+                    if root == PROJECT_ROOT:
+                        rule = project_exclusion(child_relative)
+                        if rule is not None:
+                            yield ExcludedPath(rule, child_relative)
+                            continue
                     try:
                         info = entry.stat(follow_symlinks=False)
                         if is_reparse_point(info):
@@ -85,6 +98,6 @@ def enumerate_metadata(root: Path, cancel: Event) -> Iterator[ScanEvent]:
                         yield ScanProblem(classify_os_error(exc), child_relative)
         except OSError as exc:
             if not relative_path:
-                raise RootUnavailable("The fixture root cannot be enumerated.") from exc
+                raise RootUnavailable("The scan root cannot be enumerated.") from exc
             yield ScanProblem(classify_os_error(exc), relative_path)
         pending.extend(reversed(children))

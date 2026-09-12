@@ -32,4 +32,5 @@ class ScanResult:
     skipped_count: int = 0
     errors_count: int = 0
     errors: dict[str, dict[str, object]] = field(default_factory=dict)
+    exclusions: dict[str, dict[str, object]] = field(default_factory=dict)
     cancelled: bool = False

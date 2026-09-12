@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { onMounted, onUnmounted, ref } from 'vue'
 import {
+  PROJECT_WORKSPACE_PATH,
   cancelScan,
   createScan,
   establishSession,
@@ -9,7 +10,7 @@ import {
   getScan,
   getTopFiles,
 } from './services/api'
-import type { DirectoryItem, FileItem, HealthResponse, ScanStatus } from './services/api'
+import type { DirectoryItem, FileItem, HealthResponse, ScanStatus, ScanTarget } from './services/api'
 import packageInfo from '../package.json'
 
 type ServiceState = 'checking' | 'online' | 'offline'
@@ -21,6 +22,8 @@ const sessionReady = ref(false)
 const sessionMessage = ref('')
 const scan = ref<ScanStatus | null>(null)
 const scanMessage = ref('')
+const selectedTarget = ref<ScanTarget>('fixture')
+const resultTarget = ref<ScanTarget>('fixture')
 const topFiles = ref<FileItem[]>([])
 const rootDirectories = ref<DirectoryItem[]>([])
 let pollTimer: ReturnType<typeof setInterval> | null = null
@@ -54,7 +57,7 @@ async function refreshScan() {
       stopPolling()
       if (latest.state === 'completed' || latest.state === 'cancelled') {
         ;[topFiles.value, rootDirectories.value] = await Promise.all([
-          getTopFiles(latest.scan_id),
+          getTopFiles(latest.scan_id, resultTarget.value === 'project' ? 20 : 10),
           getRootDirectories(latest.scan_id),
         ])
       }
@@ -72,7 +75,8 @@ async function startTestScan() {
   topFiles.value = []
   rootDirectories.value = []
   try {
-    const created = await createScan()
+    resultTarget.value = selectedTarget.value
+    const created = await createScan(resultTarget.value)
     scan.value = await getScan(created.scan_id)
     stopPolling()
     pollTimer = setInterval(() => void refreshScan(), 500)
@@ -141,22 +145,24 @@ onUnmounted(stopPolling)
         <div class="detail-row"><span>Backend Version</span><strong>{{ health?.version ?? '—' }}</strong></div>
         <div class="detail-row"><span>Frontend Version</span><strong>{{ frontendVersion }}</strong></div>
         <div class="detail-row"><span>运行模式</span><strong>V0.1 · 只读诊断模式</strong></div>
-        <div class="detail-row"><span>当前阶段</span><strong>M1 只读扫描器测试</strong></div>
+        <div class="detail-row"><span>当前阶段</span><strong>M1.5 真实 Windows 安全试扫</strong></div>
       </div>
 
       <section class="scan-panel" aria-labelledby="scan-title">
         <div class="scan-heading">
           <div>
-            <p class="eyebrow">仅限受控测试目录</p>
+            <p class="eyebrow">仅限固定白名单目录</p>
             <h2 id="scan-title">开发扫描测试</h2>
           </div>
-          <span class="fixture-badge">sample_disk</span>
+          <span class="fixture-badge">{{ selectedTarget === 'project' ? 'Project Workspace' : 'Fixture Sample' }}</span>
         </div>
-        <p class="scan-explanation">本页只扫描项目内的 tests/fixtures/sample_disk，读取文件系统元数据。</p>
+        <p class="scan-explanation">只读取文件系统元数据；后端仅接受 fixture 或固定项目根目录。</p>
+        <p v-if="selectedTarget === 'project'" class="scan-warning">真实目录只读测试模式<br><strong>{{ PROJECT_WORKSPACE_PATH }}</strong></p>
         <div class="scan-controls">
-          <label for="fixture-select">测试样本</label>
-          <select id="fixture-select" value="sample_disk" disabled>
-            <option value="sample_disk">sample_disk</option>
+          <label for="fixture-select">扫描目标</label>
+          <select id="fixture-select" v-model="selectedTarget" :disabled="!!scan && ['queued', 'running', 'cancelling'].includes(scan.state)">
+            <option value="fixture">Fixture Sample</option>
+            <option value="project">Project Workspace</option>
           </select>
           <button
             type="button"
@@ -179,13 +185,22 @@ onUnmounted(stopPolling)
           <div><span>目录数</span><strong>{{ scan.dirs_seen.toLocaleString() }}</strong></div>
           <div><span>逻辑大小</span><strong>{{ formatBytes(scan.logical_bytes) }}</strong></div>
           <div><span>错误数</span><strong>{{ scan.errors_count }}</strong></div>
+          <div><span>跳过数</span><strong>{{ scan.skipped_count }}</strong></div>
+        </div>
+        <div v-if="scan && Object.keys(scan.errors).length" class="scan-summary">
+          <strong>错误摘要</strong>
+          <span v-for="(entry, code) in scan.errors" :key="code">{{ code }}: {{ entry.count }}</span>
+        </div>
+        <div v-if="scan && Object.keys(scan.exclusions).length" class="scan-summary">
+          <strong>实际排除</strong>
+          <span v-for="(entry, rule) in scan.exclusions" :key="rule">{{ rule }}: {{ entry.count }}</span>
         </div>
 
         <template v-if="scan && ['completed', 'cancelled'].includes(scan.state)">
           <p class="scan-note">耗时 {{ (scan.elapsed_ms / 1000).toFixed(2) }} 秒 · 文件 {{ scan.files_seen }} · 目录 {{ scan.dirs_seen }} · 总逻辑大小 {{ formatBytes(scan.logical_bytes) }}</p>
           <div class="result-grid">
             <div>
-              <h3>Top 10 文件</h3>
+              <h3>Top {{ resultTarget === 'project' ? 20 : 10 }} 文件</h3>
               <ol class="result-list">
                 <li v-for="file in topFiles" :key="file.relative_path">
                   <span>{{ file.relative_path }}</span><strong>{{ formatBytes(file.size_bytes) }}</strong>

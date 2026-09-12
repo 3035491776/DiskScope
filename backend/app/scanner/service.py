@@ -3,7 +3,9 @@ from threading import Event
 from typing import Callable
 
 from app.scanner.aggregator import DirectoryAggregator
-from app.scanner.enumerator import DirectorySeen, FileSeen, ScanProblem, enumerate_metadata
+from app.scanner.enumerator import (
+    DirectorySeen, ExcludedPath, FileSeen, ScanProblem, enumerate_metadata,
+)
 from app.scanner.errors import ScanErrors
 from app.scanner.models import ScanResult
 
@@ -17,7 +19,7 @@ def scan_fixture(
     on_progress: ProgressCallback | None = None,
     top_k: int = 1000,
 ) -> ScanResult:
-    """Read fixture metadata without opening or changing scanned files."""
+    """Read approved-root metadata without opening or changing scanned files."""
     from app.scanner.topk import TopKFiles
 
     result = ScanResult()
@@ -42,6 +44,13 @@ def scan_fixture(
             errors.record(event.code, event.relative_path)
             result.skipped_count += 1
             result.errors_count = errors.total_count
+        elif isinstance(event, ExcludedPath):
+            entry = result.exclusions.setdefault(event.rule, {"count": 0, "samples": []})
+            entry["count"] += 1
+            samples = entry["samples"]
+            if len(samples) < 5:
+                samples.append(event.relative_path)
+            result.skipped_count += 1
 
     if cancel.is_set():
         errors.record("CANCELLED", "")

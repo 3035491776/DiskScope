@@ -75,6 +75,7 @@ class ScanTask:
             "skipped_count": self.skipped_count,
             "errors_count": self.errors_count,
             "errors": self.result.errors if self.result else {},
+            "exclusions": self.result.exclusions if self.result else {},
             "cancel_requested": self.cancel_requested,
             "error_code": self.error_code,
             "error_message": self.error_message,
@@ -95,7 +96,7 @@ class ScanTaskManager:
             self._tasks[task.scan_id] = task
             self._prune_finished()
             threading.Thread(
-                target=self._run, args=(task,), name="diskscope-fixture-scan", daemon=True
+                target=self._run, args=(task,), name="diskscope-approved-scan", daemon=True
             ).start()
             return {"scan_id": task.scan_id, "state": task.state}
 
@@ -136,25 +137,25 @@ class ScanTaskManager:
                 task.state = "failed"
                 task.phase = "failed"
                 task.error_code = "INVALID_PATH"
-                task.error_message = "The fixture root became unavailable."
+                task.error_message = "The approved scan root became unavailable."
         except OSError as exc:
-            logging.error("Fixture scan failed with %s", type(exc).__name__)
+            logging.error("Approved scan failed with %s", type(exc).__name__)
             with self._lock:
                 task.finished_at = utc_now()
                 task.finished_clock = time.monotonic()
                 task.state = "failed"
                 task.phase = "failed"
                 task.error_code = "IO_ERROR"
-                task.error_message = "The fixture scan could not finish."
+                task.error_message = "The approved scan could not finish."
         except Exception as exc:
-            logging.error("Fixture scan failed with %s", type(exc).__name__)
+            logging.error("Approved scan failed with %s", type(exc).__name__)
             with self._lock:
                 task.finished_at = utc_now()
                 task.finished_clock = time.monotonic()
                 task.state = "failed"
                 task.phase = "failed"
                 task.error_code = "IO_ERROR"
-                task.error_message = "The fixture scan could not finish."
+                task.error_message = "The approved scan could not finish."
 
     def status(self, scan_id: str) -> dict[str, object]:
         with self._lock:

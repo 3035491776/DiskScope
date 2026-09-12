@@ -24,7 +24,6 @@ class PathBoundaryTests(unittest.TestCase):
             "D:\\",
             "\\\\server\\share",
             "\\\\?\\C:\\Windows",
-            str(SAMPLE_ROOT.parents[2]),
         ):
             with self.subTest(candidate=candidate):
                 with self.assertRaises(InvalidScanRoot):
