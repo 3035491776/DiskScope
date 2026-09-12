@@ -64,11 +64,23 @@ def cancel_scan(scan_id: str) -> dict[str, object]:
 @router.get("/{scan_id}/top", dependencies=[Depends(require_session)])
 def top_files(
     scan_id: str,
-    kind: Literal["file"] = "file",
+    kind: Literal["file", "directory"] = "file",
     limit: int = Query(default=100, ge=1, le=1000),
 ) -> dict[str, object]:
     try:
-        files = scan_tasks.result(scan_id).top_files
+        result = scan_tasks.result(scan_id)
+        if kind == "directory":
+            directories = sorted(
+                (item for path, item in result.directories.items() if path),
+                key=lambda item: (-item.subtree_bytes, item.relative_path),
+            )
+            return {
+                "scan_id": scan_id,
+                "kind": kind,
+                "total": len(directories),
+                "items": [directory_item(item, result) for item in directories[:limit]],
+            }
+        files = result.top_files
         return {
             "scan_id": scan_id,
             "kind": kind,
@@ -90,6 +102,7 @@ def directories(
             return {"scan_id": scan_id, "parent_id": parent_id, "items": []}
         if parent_id not in directory_map:
             raise HTTPException(status_code=404, detail="Directory not found.")
+        result = scan_tasks.result(scan_id)
         items = sorted(
             (directory for directory in directory_map.values() if directory.parent == parent_id),
             key=lambda directory: (-directory.subtree_bytes, directory.relative_path),
@@ -97,7 +110,16 @@ def directories(
         return {
             "scan_id": scan_id,
             "parent_id": parent_id,
-            "items": [asdict(directory) for directory in items],
+            "items": [directory_item(directory, result) for directory in items],
         }
     except (ScanNotFound, ResultNotReady) as exc:
         raise _api_error(exc) from exc
+
+
+def directory_item(directory, result) -> dict[str, object]:
+    return {
+        **asdict(directory),
+        "node_id": directory.relative_path,
+        "name": directory.relative_path.rsplit("/", 1)[-1],
+        "coverage": "limited" if result.cancelled or directory.relative_path in result.limited_directories else "complete",
+    }

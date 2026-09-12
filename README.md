@@ -1,20 +1,22 @@
 # DiskScope
 
-DiskScope 是 Windows 磁盘空间诊断工具。当前状态为 **V0.1 / M1.6 Low-Impact Scan 安全门**。默认扫描受控 fixture；开发测试区还可显式选择唯一白名单项目根目录。C:\ 整卷扫描继续拒绝。
+DiskScope 是 Windows 磁盘空间诊断工具。当前状态为 **V0.1 / M2 空间分析 Web UI**。页面只允许显式扫描受控 fixture 或唯一白名单项目根目录；C:\ 整卷扫描继续拒绝。
 
 ## 当前实现
 
 - FastAPI 后端：`GET /health` 返回服务状态、应用名、版本和只读模式。
-- Vue 3 + TypeScript + Vite 页面：实际请求 `/health` 显示后端状态，支持手动重新检查。
+- Vue 3 + TypeScript + Vite 页面：总览、空间分析、大文件与目录、扫描状态、设置与说明；实际请求 `/health` 显示后端状态。
 - 只读扫描器：流式读取元数据、目录聚合、Top-K、错误摘要和协作取消；扫描结果暂存在内存。
-- 开发扫描测试区：固定选择 fixture 或 `D:\Artilius\Codex\Windows-C-clear`，通过 HTTP 轮询展示状态与结果。
+- 固定扫描入口：选择 fixture 或 `D:\Artilius\Codex\Windows-C-clear`，通过 HTTP 轮询展示状态与结果；空间分析只按当前层级查询目录。
+- 本机固定卷容量卡片：`GET /api/v1/volumes` 读取容量，不启动扫描，也不列出网络盘。图表只绘制获准范围的扫描结果。
+- M2 页面和 API 口径见 [docs/m2-space-analysis.md](docs/m2-space-analysis.md)。
 - Low-Impact `standard` 策略：单枚举 worker、禁止跨卷和 reparse 跟随；开发区展示进程范围资源指标。设计与口径见 [docs/low-impact-scan.md](docs/low-impact-scan.md)。
 - `setup.bat`：检查本机 Python 和 Node.js，创建项目 `.venv`，安装依赖并构建前端。
 - `start.bat`：调用 `launcher/bootstrap.py` 启动后端，等待真实健康检查成功，再打开默认浏览器。
 
 ## 尚未实现
 
-本阶段只允许显式选择固定项目目录作为真实 Windows 测试根，不扫描 C:\、D:\ 根或用户目录，也不提供清理、删除、移动、文件修改、缓存清理、SQLite 快照、增长比较或图表。扫描器不打开文件内容。路径限制由后端执行，页面上的固定选项不是安全边界。
+本阶段只允许显式选择固定项目目录作为真实 Windows 测试根，不扫描 C:\、D:\ 根或用户目录，也不提供清理、删除、移动、文件修改、缓存清理、SQLite 快照或增长比较。扫描器不打开文件内容。路径限制由后端执行，页面上的固定选项不是安全边界。
 
 ## 首次准备与日常启动
 
@@ -26,7 +28,7 @@ DiskScope 是 Windows 磁盘空间诊断工具。当前状态为 **V0.1 / M1.6 L
 
 ## 开发启动
 
-先运行 `setup.bat` 并生成样本。完整 M1.5 流程优先使用 `start.bat`。若单独运行 Vite，需要在后端启用仅供开发的来源白名单，并给前后端使用同一临时启动凭据；不要把凭据提交到仓库。
+先运行 `setup.bat` 并生成样本。完整 M2 流程优先使用 `start.bat`。若单独运行 Vite，需要在后端启用仅供开发的来源白名单，并给前后端使用同一临时启动凭据；不要把凭据提交到仓库。
 
 开发时在后端终端运行：
 
@@ -53,9 +55,10 @@ npm.cmd --prefix frontend run dev
 $env:PYTHONPATH='backend'
 .venv\Scripts\python.exe -m unittest discover -s tests -v
 npm.cmd --prefix frontend run build
+npm.cmd --prefix frontend test
 ```
 
-扫描 API 位于 `/api/v1/scans`，提供创建、状态、取消、Top 文件和目录结果。除 `/health` 外，扫描 API 需要本机会话；修改请求还校验 Origin。扫描根只允许 `tests/fixtures` 及其子目录，或精确匹配临时开发白名单中的 `D:\Artilius\Codex\Windows-C-clear`。项目扫描按路径组件排除 `.git/`、`.venv/`、`frontend/node_modules/`、`frontend/dist/`、`logs/`、`data/`，并在结果中记录实际排除项。真实盘符根、UNC、设备路径和重解析点仍被拒绝。
+扫描 API 位于 `/api/v1/scans`，提供创建、状态、取消、Top 文件/大目录和当前层级目录结果；容量接口位于 `/api/v1/volumes`。除 `/health` 外，这些 API 需要本机会话；修改请求还校验 Origin。扫描根只允许 `tests/fixtures` 及其子目录，或精确匹配临时开发白名单中的 `D:\Artilius\Codex\Windows-C-clear`。项目扫描按路径组件排除 `.git/`、`.venv/`、`frontend/node_modules/`、`frontend/dist/`、`logs/`、`data/`，并在结果中记录实际排除项。真实盘符根、UNC、设备路径和重解析点仍被拒绝。
 
 ## 安全边界
 

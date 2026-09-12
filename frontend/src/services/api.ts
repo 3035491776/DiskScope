@@ -77,6 +77,8 @@ export interface FileItem {
 }
 
 export interface DirectoryItem {
+  node_id: string
+  name: string
   relative_path: string
   parent: string | null
   direct_bytes: number
@@ -84,6 +86,15 @@ export interface DirectoryItem {
   direct_file_count: number
   file_count: number
   children_count: number
+  coverage: 'complete' | 'limited'
+}
+
+export interface VolumeItem {
+  drive: string
+  total_bytes: number
+  used_bytes: number
+  free_bytes: number
+  scan_allowed: false
 }
 
 async function apiJson<T>(url: string, init?: RequestInit): Promise<T> {
@@ -147,9 +158,21 @@ export async function getTopFiles(scanId: string, limit = 10): Promise<FileItem[
   return result.items
 }
 
-export async function getRootDirectories(scanId: string): Promise<DirectoryItem[]> {
+export async function getDirectories(scanId: string, parentId = ''): Promise<DirectoryItem[]> {
   const result = await apiJson<{ items: DirectoryItem[] }>(
-    `/api/v1/scans/${encodeURIComponent(scanId)}/directories`,
+    `/api/v1/scans/${encodeURIComponent(scanId)}/directories?parent_id=${encodeURIComponent(parentId)}`,
   )
+  return result.items
+}
+
+export async function getTopDirectories(scanId: string, limit = 100): Promise<DirectoryItem[]> {
+  const result = await apiJson<{ items: DirectoryItem[] }>(
+    `/api/v1/scans/${encodeURIComponent(scanId)}/top?kind=directory&limit=${limit}`,
+  )
+  return result.items
+}
+
+export async function getVolumes(): Promise<VolumeItem[]> {
+  const result = await apiJson<{ items: VolumeItem[] }>('/api/v1/volumes')
   return result.items
 }

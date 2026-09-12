@@ -5,6 +5,7 @@ from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from app.api.health import router as health_router
 from app.api.scans import router as scans_router
+from app.api.volumes import router as volumes_router
 from app.api.session import router as session_router
 from app.core.config import APP_NAME, APP_VERSION, FRONTEND_DIST, HOST, PORT
 
@@ -20,6 +21,7 @@ app.add_middleware(TrustedHostMiddleware, allowed_hosts=[HOST])
 app.include_router(health_router)
 app.include_router(session_router)
 app.include_router(scans_router)
+app.include_router(volumes_router)
 
 
 @app.middleware("http")
@@ -29,6 +31,15 @@ async def require_local_host(request: Request, call_next):
     return await call_next(request)
 
 if FRONTEND_DIST.is_dir():
+    from fastapi.responses import FileResponse
+
+    @app.get("/{page}", include_in_schema=False)
+    def frontend_page(page: str) -> FileResponse:
+        if page not in {"dashboard", "analysis", "large-items", "status", "settings"}:
+            from fastapi import HTTPException
+            raise HTTPException(status_code=404)
+        return FileResponse(FRONTEND_DIST / "index.html")
+
     app.mount("/", StaticFiles(directory=FRONTEND_DIST, html=True), name="web")
 else:
     @app.get("/")

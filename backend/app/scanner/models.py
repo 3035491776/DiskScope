@@ -33,4 +33,5 @@ class ScanResult:
     errors_count: int = 0
     errors: dict[str, dict[str, object]] = field(default_factory=dict)
     exclusions: dict[str, dict[str, object]] = field(default_factory=dict)
+    limited_directories: set[str] = field(default_factory=set)
     cancelled: bool = False

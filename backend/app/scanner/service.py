@@ -27,6 +27,14 @@ def scan_fixture(
     top_files = TopKFiles(top_k)
     errors = ScanErrors()
 
+    def mark_limited(relative_path: str) -> None:
+        parent = relative_path.rpartition("/")[0]
+        while True:
+            result.limited_directories.add(parent)
+            if not parent:
+                break
+            parent = parent.rpartition("/")[0]
+
     for event in enumerate_metadata(root, cancel):
         if isinstance(event, DirectorySeen):
             aggregator.add_directory(event.relative_path, event.parent)
@@ -42,9 +50,11 @@ def scan_fixture(
                 on_progress(result)
         elif isinstance(event, ScanProblem):
             errors.record(event.code, event.relative_path)
+            mark_limited(event.relative_path)
             result.skipped_count += 1
             result.errors_count = errors.total_count
         elif isinstance(event, ExcludedPath):
+            mark_limited(event.relative_path)
             entry = result.exclusions.setdefault(event.rule, {"count": 0, "samples": []})
             entry["count"] += 1
             samples = entry["samples"]
@@ -55,6 +65,7 @@ def scan_fixture(
     if cancel.is_set():
         errors.record("CANCELLED", "")
         result.cancelled = True
+        result.limited_directories.add("")
     result.directories = aggregator.finish()
     result.top_files = top_files.sorted_files()
     result.errors_count = errors.total_count

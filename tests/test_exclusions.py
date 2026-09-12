@@ -49,6 +49,9 @@ class ExclusionsTests(unittest.TestCase):
                 rule = path.relative_to(PROJECT_ROOT).as_posix()
                 self.assertIn(rule, result.exclusions)
         self.assertGreaterEqual(result.skipped_count, len(result.exclusions))
+        self.assertIn("", result.limited_directories)
+        self.assertIn("frontend", result.limited_directories)
+        self.assertNotIn("backend", result.limited_directories)
 
 
 if __name__ == "__main__":
