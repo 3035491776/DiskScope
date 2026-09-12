@@ -1,6 +1,7 @@
 import unittest
 
 from app.scanner.path_guard import InvalidScanRoot, validate_scan_root
+from app.scanner.whole_volume_gate import WholeVolumeScanDenied
 from tests.fixtures.generate_sample import SAMPLE_ROOT, generate_sample
 
 
@@ -26,7 +27,7 @@ class PathBoundaryTests(unittest.TestCase):
             "\\\\?\\C:\\Windows",
         ):
             with self.subTest(candidate=candidate):
-                with self.assertRaises(InvalidScanRoot):
+                with self.assertRaises((InvalidScanRoot, WholeVolumeScanDenied)):
                     validate_scan_root(candidate)
 
     def test_file_is_not_a_scan_root(self) -> None:

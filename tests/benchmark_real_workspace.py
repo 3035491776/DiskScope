@@ -87,6 +87,7 @@ def main() -> None:
             "files_per_second": round(
                 result.files_seen / max(statuses[0]["elapsed_ms"] / 1000, 0.001)
             ),
+            "process_metrics": statuses[0]["metrics"],
             "errors": result.errors,
             "exclusions": result.exclusions,
             "top_20": [
@@ -103,6 +104,7 @@ def main() -> None:
             "dirs_seen": second.dirs_seen,
             "logical_bytes": second.logical_bytes,
             "duration_seconds": round(statuses[1]["elapsed_ms"] / 1000, 3),
+            "process_metrics": statuses[1]["metrics"],
         },
     }
     print(json.dumps(output, ensure_ascii=False, indent=2))

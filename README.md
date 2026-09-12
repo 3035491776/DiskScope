@@ -1,6 +1,6 @@
 # DiskScope
 
-DiskScope 是 Windows 磁盘空间诊断工具。当前状态为 **V0.1 / M1.5 真实 Windows 安全试扫**。默认扫描受控 fixture；开发测试区还可显式选择唯一白名单项目根目录。
+DiskScope 是 Windows 磁盘空间诊断工具。当前状态为 **V0.1 / M1.6 Low-Impact Scan 安全门**。默认扫描受控 fixture；开发测试区还可显式选择唯一白名单项目根目录。C:\ 整卷扫描继续拒绝。
 
 ## 当前实现
 
@@ -8,6 +8,7 @@ DiskScope 是 Windows 磁盘空间诊断工具。当前状态为 **V0.1 / M1.5 �
 - Vue 3 + TypeScript + Vite 页面：实际请求 `/health` 显示后端状态，支持手动重新检查。
 - 只读扫描器：流式读取元数据、目录聚合、Top-K、错误摘要和协作取消；扫描结果暂存在内存。
 - 开发扫描测试区：固定选择 fixture 或 `D:\Artilius\Codex\Windows-C-clear`，通过 HTTP 轮询展示状态与结果。
+- Low-Impact `standard` 策略：单枚举 worker、禁止跨卷和 reparse 跟随；开发区展示进程范围资源指标。设计与口径见 [docs/low-impact-scan.md](docs/low-impact-scan.md)。
 - `setup.bat`：检查本机 Python 和 Node.js，创建项目 `.venv`，安装依赖并构建前端。
 - `start.bat`：调用 `launcher/bootstrap.py` 启动后端，等待真实健康检查成功，再打开默认浏览器。
 

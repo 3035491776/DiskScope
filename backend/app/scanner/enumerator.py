@@ -10,6 +10,7 @@ from app.scanner.errors import classify_os_error
 from app.scanner.exclusions import project_exclusion
 from app.scanner.models import FileMetadata
 from app.scanner.path_guard import InvalidScanRoot, assert_safe_directory, is_reparse_point
+from app.scanner.volume_guard import same_scan_volume
 from app.core.config import PROJECT_ROOT
 
 
@@ -50,6 +51,9 @@ def enumerate_metadata(root: Path, cancel: Event) -> Iterator[ScanEvent]:
         if cancel.is_set():
             return
         path, relative_path, parent = pending.pop()
+        if not same_scan_volume(root, path):
+            yield ScanProblem("CROSS_VOLUME_SKIPPED", relative_path)
+            continue
         try:
             assert_safe_directory(root, path)
         except InvalidScanRoot as exc:
@@ -73,6 +77,9 @@ def enumerate_metadata(root: Path, cancel: Event) -> Iterator[ScanEvent]:
                         if rule is not None:
                             yield ExcludedPath(rule, child_relative)
                             continue
+                    if not same_scan_volume(root, Path(entry.path)):
+                        yield ScanProblem("CROSS_VOLUME_SKIPPED", child_relative)
+                        continue
                     try:
                         info = entry.stat(follow_symlinks=False)
                         if is_reparse_point(info):

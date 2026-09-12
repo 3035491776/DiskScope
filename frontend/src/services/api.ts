@@ -46,9 +46,25 @@ export interface ScanStatus {
   errors_count: number
   errors: Record<string, { count: number; samples: string[] }>
   exclusions: Record<string, { count: number; samples: string[] }>
+  metrics: ScanMetrics | null
   cancel_requested: boolean
   error_code: string | null
   error_message: string | null
+}
+
+export interface ScanMetrics {
+  duration_ms: number
+  files_per_second: number
+  rss_peak_observed_bytes: number | null
+  cpu_seconds: number | null
+  process_read_bytes_before: number | null
+  process_read_bytes_after: number | null
+  delta_read_bytes: number | null
+  process_write_bytes_before: number | null
+  process_write_bytes_after: number | null
+  delta_write_bytes: number | null
+  delta_read_operations: number | null
+  delta_write_operations: number | null
 }
 
 export interface FileItem {

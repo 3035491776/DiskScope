@@ -157,6 +157,9 @@ class RealworldBehaviorTests(unittest.TestCase):
             resume.set()
             self._wait_for_state(manager, first["scan_id"], "cancelled")
 
+        frozen_metrics = manager.status(first["scan_id"])["metrics"]
+        time.sleep(0.05)
+        self.assertEqual(manager.status(first["scan_id"])["metrics"], frozen_metrics)
         self.assertFalse(any(
             thread.name == "diskscope-approved-scan" and thread.is_alive()
             for thread in threading.enumerate()

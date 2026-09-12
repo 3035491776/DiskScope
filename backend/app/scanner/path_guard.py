@@ -3,6 +3,7 @@ import stat
 from pathlib import Path, PureWindowsPath
 
 from app.core.config import PROJECT_ROOT
+from app.scanner.whole_volume_gate import reject_whole_volume_root
 
 
 FIXTURE_ROOT = PROJECT_ROOT / "tests" / "fixtures"
@@ -27,6 +28,8 @@ def _normalized_path(raw_path: str) -> Path:
     windows_path = PureWindowsPath(raw_path)
     if raw_path.startswith("\\\\") or windows_path.drive.startswith("\\\\"):
         raise InvalidScanRoot("UNC and device paths are not allowed.")
+    if windows_path.drive and not windows_path.is_absolute():
+        raise InvalidScanRoot("Drive-relative paths are not allowed.")
     supplied = Path(raw_path)
     return Path(os.path.abspath(supplied if supplied.is_absolute() else PROJECT_ROOT / supplied))
 
@@ -46,6 +49,7 @@ def _assert_no_reparse(start: Path, relative_parts: tuple[str, ...]) -> None:
 
 def validate_scan_root(raw_root: str) -> tuple[Path, str]:
     lexical = _normalized_path(raw_root)
+    reject_whole_volume_root(lexical)
     try:
         resolved = lexical.resolve(strict=True)
         if not resolved.is_dir():

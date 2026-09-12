@@ -3,6 +3,7 @@ from unittest.mock import patch
 
 from app.core.config import PROJECT_ROOT
 from app.scanner.path_guard import InvalidScanRoot, PROJECT_ROOT_LABEL, validate_scan_root
+from app.scanner.whole_volume_gate import WholeVolumeScanDenied
 
 
 class RealRootPolicyTests(unittest.TestCase):
@@ -20,7 +21,7 @@ class RealRootPolicyTests(unittest.TestCase):
             "\\\\?\\D:\\Artilius\\Codex\\Windows-C-clear",
         ):
             with self.subTest(candidate=candidate):
-                with self.assertRaises(InvalidScanRoot):
+                with self.assertRaises((InvalidScanRoot, WholeVolumeScanDenied)):
                     validate_scan_root(candidate)
 
     def test_reparse_project_root_is_rejected(self) -> None:

@@ -90,6 +90,9 @@ button:disabled { opacity: .55; cursor: wait; }
 h2 { margin: 0; font-size: 21px; letter-spacing: -.02em; }
 .fixture-badge { padding: 7px 10px; border-radius: 6px; background: #edf2f5; color: #456070; font-size: 12px; }
 .scan-explanation, .scan-note { color: #6b7785; font-size: 13px; line-height: 1.6; }
+.low-impact-note { display: grid; gap: 5px; padding: 10px 12px; background: #f3f7f5; border-left: 3px solid #288564; color: #365a4d; font-size: 12px; line-height: 1.5; }
+.scan-metrics { display: flex; flex-wrap: wrap; gap: 8px 16px; padding: 12px; background: #f5f7f9; color: #526476; font-size: 12px; }
+.scan-metrics strong { width: 100%; }
 .scan-warning { padding: 10px 12px; border-left: 3px solid #b97826; background: #fff7e8; color: #704a18; font-size: 13px; line-height: 1.6; }
 .scan-warning strong { overflow-wrap: anywhere; }
 .scan-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-top: 20px; }

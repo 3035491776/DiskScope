@@ -99,6 +99,14 @@ function formatBytes(value: number): string {
   return `${value.toLocaleString()} B`
 }
 
+function metricBytes(value: number | null | undefined): string {
+  return value == null ? 'unavailable' : formatBytes(value)
+}
+
+function metricRate(value: number | null | undefined): string {
+  return value == null ? 'unavailable' : `${value.toLocaleString()} files/sec`
+}
+
 onMounted(async () => {
   await checkService()
   try {
@@ -145,7 +153,7 @@ onUnmounted(stopPolling)
         <div class="detail-row"><span>Backend Version</span><strong>{{ health?.version ?? '—' }}</strong></div>
         <div class="detail-row"><span>Frontend Version</span><strong>{{ frontendVersion }}</strong></div>
         <div class="detail-row"><span>运行模式</span><strong>V0.1 · 只读诊断模式</strong></div>
-        <div class="detail-row"><span>当前阶段</span><strong>M1.5 真实 Windows 安全试扫</strong></div>
+        <div class="detail-row"><span>当前阶段</span><strong>M1.6 Low-Impact Scan 安全门</strong></div>
       </div>
 
       <section class="scan-panel" aria-labelledby="scan-title">
@@ -157,6 +165,10 @@ onUnmounted(stopPolling)
           <span class="fixture-badge">{{ selectedTarget === 'project' ? 'Project Workspace' : 'Fixture Sample' }}</span>
         </div>
         <p class="scan-explanation">只读取文件系统元数据；后端仅接受 fixture 或固定项目根目录。</p>
+        <div class="low-impact-note">
+          <strong>Low-Impact Scan</strong>
+          <span>Metadata only · Concurrency: 1 · Reparse points: not followed · Cross-volume: disabled · Whole-volume scan: blocked</span>
+        </div>
         <p v-if="selectedTarget === 'project'" class="scan-warning">真实目录只读测试模式<br><strong>{{ PROJECT_WORKSPACE_PATH }}</strong></p>
         <div class="scan-controls">
           <label for="fixture-select">扫描目标</label>
@@ -198,6 +210,14 @@ onUnmounted(stopPolling)
 
         <template v-if="scan && ['completed', 'cancelled'].includes(scan.state)">
           <p class="scan-note">耗时 {{ (scan.elapsed_ms / 1000).toFixed(2) }} 秒 · 文件 {{ scan.files_seen }} · 目录 {{ scan.dirs_seen }} · 总逻辑大小 {{ formatBytes(scan.logical_bytes) }}</p>
+          <div class="scan-metrics">
+            <strong>开发资源指标（进程范围）</strong>
+            <span>Duration: {{ scan.metrics ? (scan.metrics.duration_ms / 1000).toFixed(2) + ' s' : 'unavailable' }}</span>
+            <span>Rate: {{ metricRate(scan.metrics?.files_per_second) }}</span>
+            <span>Read bytes: {{ metricBytes(scan.metrics?.delta_read_bytes) }}</span>
+            <span>Write bytes: {{ metricBytes(scan.metrics?.delta_write_bytes) }}</span>
+            <span>RSS observed peak: {{ metricBytes(scan.metrics?.rss_peak_observed_bytes) }}</span>
+          </div>
           <div class="result-grid">
             <div>
               <h3>Top {{ resultTarget === 'project' ? 20 : 10 }} 文件</h3>

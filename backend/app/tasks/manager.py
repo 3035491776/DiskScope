@@ -9,7 +9,9 @@ from pathlib import Path
 
 from app.scanner.enumerator import RootUnavailable
 from app.scanner.models import ScanResult
+from app.scanner.metrics import ScanResourceMonitor
 from app.scanner.path_guard import validate_scan_root
+from app.scanner.policy import SCAN_POLICY
 from app.scanner.service import scan_fixture
 
 
@@ -53,6 +55,7 @@ class ScanTask:
     error_code: str | None = None
     error_message: str | None = None
     result: ScanResult | None = field(default=None, repr=False)
+    metrics: dict[str, int | float | None] | None = None
     cancel_event: threading.Event = field(default_factory=threading.Event, repr=False)
     started_clock: float | None = field(default=None, repr=False)
     finished_clock: float | None = field(default=None, repr=False)
@@ -76,6 +79,7 @@ class ScanTask:
             "errors_count": self.errors_count,
             "errors": self.result.errors if self.result else {},
             "exclusions": self.result.exclusions if self.result else {},
+            "metrics": self.metrics,
             "cancel_requested": self.cancel_requested,
             "error_code": self.error_code,
             "error_message": self.error_message,
@@ -90,7 +94,7 @@ class ScanTaskManager:
     def create(self, requested_root: str) -> dict[str, object]:
         root_path, root_label = validate_scan_root(requested_root)
         with self._lock:
-            if any(task.state in ACTIVE_STATES for task in self._tasks.values()):
+            if sum(task.state in ACTIVE_STATES for task in self._tasks.values()) >= SCAN_POLICY.max_active_scans:
                 raise ScanAlreadyRunning("A scan is already active.")
             task = ScanTask(scan_id=str(uuid.uuid4()), root=root_label, root_path=root_path)
             self._tasks[task.scan_id] = task
@@ -113,8 +117,15 @@ class ScanTaskManager:
             task.started_clock = time.monotonic()
             task.state = "cancelling" if task.cancel_requested else "running"
             task.phase = "enumerating"
+        monitor = ScanResourceMonitor()
+        last_sample_items = 0
 
         def update_progress(result: ScanResult) -> None:
+            nonlocal last_sample_items
+            items_seen = result.files_seen + result.dirs_seen
+            if items_seen - last_sample_items >= 256:
+                monitor.sample()
+                last_sample_items = items_seen
             with self._lock:
                 task.files_seen = result.files_seen
                 task.dirs_seen = result.dirs_seen
@@ -130,6 +141,9 @@ class ScanTaskManager:
                 task.finished_clock = time.monotonic()
                 task.state = "cancelled" if result.cancelled else "completed"
                 task.phase = task.state
+                task.metrics = monitor.finish(task.files_seen, round(
+                    (task.finished_clock - task.started_clock) * 1000
+                ))
         except RootUnavailable:
             with self._lock:
                 task.finished_at = utc_now()
@@ -138,6 +152,9 @@ class ScanTaskManager:
                 task.phase = "failed"
                 task.error_code = "INVALID_PATH"
                 task.error_message = "The approved scan root became unavailable."
+                task.metrics = monitor.finish(task.files_seen, round(
+                    (task.finished_clock - task.started_clock) * 1000
+                ))
         except OSError as exc:
             logging.error("Approved scan failed with %s", type(exc).__name__)
             with self._lock:
@@ -147,6 +164,9 @@ class ScanTaskManager:
                 task.phase = "failed"
                 task.error_code = "IO_ERROR"
                 task.error_message = "The approved scan could not finish."
+                task.metrics = monitor.finish(task.files_seen, round(
+                    (task.finished_clock - task.started_clock) * 1000
+                ))
         except Exception as exc:
             logging.error("Approved scan failed with %s", type(exc).__name__)
             with self._lock:
@@ -156,6 +176,9 @@ class ScanTaskManager:
                 task.phase = "failed"
                 task.error_code = "IO_ERROR"
                 task.error_message = "The approved scan could not finish."
+                task.metrics = monitor.finish(task.files_seen, round(
+                    (task.finished_clock - task.started_clock) * 1000
+                ))
 
     def status(self, scan_id: str) -> dict[str, object]:
         with self._lock:

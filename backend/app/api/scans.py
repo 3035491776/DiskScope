@@ -5,6 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 
 from app.scanner.path_guard import InvalidScanRoot
+from app.scanner.whole_volume_gate import WholeVolumeScanDenied
 from app.security.session import require_local_origin, require_session
 from app.tasks.manager import (
     ResultNotReady,
@@ -22,6 +23,8 @@ class CreateScanRequest(BaseModel):
 
 
 def _api_error(error: Exception) -> HTTPException:
+    if isinstance(error, WholeVolumeScanDenied):
+        return HTTPException(status_code=403, detail=error.code)
     if isinstance(error, InvalidScanRoot):
         return HTTPException(status_code=403, detail=str(error))
     if isinstance(error, ScanAlreadyRunning) or isinstance(error, ResultNotReady):
@@ -35,7 +38,7 @@ def _api_error(error: Exception) -> HTTPException:
 def create_scan(body: CreateScanRequest) -> dict[str, object]:
     try:
         return scan_tasks.create(body.root)
-    except (InvalidScanRoot, ScanAlreadyRunning) as exc:
+    except (InvalidScanRoot, WholeVolumeScanDenied, ScanAlreadyRunning) as exc:
         raise _api_error(exc) from exc
 
 
