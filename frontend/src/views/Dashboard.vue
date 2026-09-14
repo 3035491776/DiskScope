@@ -5,14 +5,15 @@ import EmptyState from '../components/EmptyState.vue'
 import LowImpactCard from '../components/LowImpactCard.vue'
 import ScanControls from '../components/ScanControls.vue'
 import ScanProgress from '../components/ScanProgress.vue'
+import ResultSourceBanner from '../components/ResultSourceBanner.vue'
 import { useScanStore } from '../stores/scan'
 import { formatBytes, formatNumber, formatSeconds } from '../utils/format'
-import { completionLabel, isActive, targetName } from '../utils/presentation'
+import { isActive, targetName } from '../utils/presentation'
 
 const store = useScanStore()
 const router = useRouter()
 const confirmCDrive = ref(false)
-const summary = computed(() => store.scan)
+const summary = computed(() => store.result?.summary)
 const cVolume = computed(() => store.volumes.find(volume => volume.drive === 'C:'))
 async function beginCDriveAnalysis() {
   if (store.starting || isActive(store.scan)) return
@@ -35,22 +36,24 @@ function usedPercent(total: number, used: number): number | null {
     <ScanControls />
   </section>
 
+  <ResultSourceBanner />
+
   <section class="summary-section" aria-label="当前扫描范围统计">
-    <div class="section-heading"><div><p class="eyebrow">当前扫描范围</p><h2>{{ targetName(store.scan ? store.resultTarget : store.selectedTarget) }}</h2></div><span v-if="summary" class="status-pill" :class="summary.state">{{ completionLabel(summary) }}</span></div>
+    <div class="section-heading"><div><p class="eyebrow">当前浏览范围</p><h2>{{ targetName(store.resultTarget) }}</h2></div><span v-if="store.result?.source_type !== 'none' && store.result" class="status-pill completed">{{ store.result.coverage === 'limited' ? '扫描完成 · 部分位置未覆盖' : '扫描完成' }}</span></div>
     <div class="metric-grid">
-      <div class="metric-card"><span>{{ store.resultTarget === 'c_drive' ? '扫描可见空间' : '已扫描逻辑大小' }}</span><strong>{{ formatBytes(summary?.logical_bytes) }}</strong><small>仅当前扫描范围 · 逻辑大小</small></div>
-      <div class="metric-card"><span>文件</span><strong>{{ formatNumber(summary?.files_seen) }}</strong><small>已发现项目</small></div>
-      <div class="metric-card"><span>目录</span><strong>{{ formatNumber(summary?.dirs_seen) }}</strong><small>包含扫描根</small></div>
-      <div class="metric-card"><span>扫描耗时</span><strong>{{ formatSeconds(summary?.elapsed_ms) }}</strong><small>实际任务时间</small></div>
+      <div class="metric-card"><span>{{ store.resultTarget === 'c_drive' ? '扫描可见空间' : '已扫描逻辑大小' }}</span><strong>{{ formatBytes(summary?.total_bytes) }}</strong><small>仅当前扫描范围 · 逻辑大小</small></div>
+      <div class="metric-card"><span>文件</span><strong>{{ formatNumber(summary?.file_count) }}</strong><small>已发现项目</small></div>
+      <div class="metric-card"><span>目录</span><strong>{{ formatNumber(summary?.directory_count) }}</strong><small>包含扫描根</small></div>
+      <div class="metric-card"><span>扫描耗时</span><strong>{{ formatSeconds(summary ? summary.duration_seconds * 1000 : null) }}</strong><small>实际任务时间</small></div>
     </div>
-    <p v-if="store.resultTarget === 'c_drive' && summary" class="inline-note">磁盘已用空间 {{ formatBytes(cVolume?.used_bytes) }}；扫描可见空间 {{ formatBytes(summary.logical_bytes) }}。两者口径不同，权限受限和 NTFS 系统占用可能造成差异。</p>
-    <ScanProgress v-if="summary && isActive(summary)" :scan="summary" />
-    <div v-else-if="summary?.state === 'completed'" class="summary-callout">
-      <span>{{ completionLabel(summary) }} · 错误 {{ summary.errors_count }} · 跳过 {{ summary.skipped_count }}</span>
+    <p v-if="store.resultTarget === 'c_drive' && summary" class="inline-note">磁盘已用空间 {{ formatBytes(cVolume?.used_bytes) }}；扫描可见空间 {{ formatBytes(summary.total_bytes) }}。两者口径不同，权限受限和 NTFS 系统占用可能造成差异。</p>
+    <p v-if="store.scan && isActive(store.scan)" class="inline-note">当前运行任务：{{ targetName(store.scan.scope_key === 'system_drive_c' ? 'c_drive' : store.scan.scope_key === 'project_workspace' ? 'project' : 'fixture') }}</p>
+    <ScanProgress v-if="store.scan && isActive(store.scan)" :scan="store.scan" />
+    <div v-if="summary" class="summary-callout">
+      <span>{{ store.result?.source_type === 'snapshot' ? '已保存结果' : '最新结果' }} · {{ store.result?.coverage === 'limited' ? `${formatNumber(summary.skipped_count)} 个位置未完全覆盖` : '覆盖完整' }}</span>
       <RouterLink to="/analysis">查看空间分析 →</RouterLink>
     </div>
-    <EmptyState v-else-if="!summary" title="尚无扫描结果" description="选择一个固定范围并开始只读扫描，统计数字将从实际扫描 API 显示。" />
-    <p v-else-if="summary.state === 'cancelled' || summary.state === 'failed'" class="inline-note">{{ completionLabel(summary) }}。可在扫描状态页查看详情或重新开始。</p>
+    <EmptyState v-else title="暂无已保存扫描结果" description="选择一个固定范围并开始只读扫描；不会自动重扫 C 盘。" />
   </section>
 
   <section class="volume-section panel" aria-labelledby="volume-title">

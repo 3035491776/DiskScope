@@ -241,6 +241,21 @@ class SnapshotStore:
                 ORDER BY subtree_bytes DESC, relative_path""", (snapshot_id, parent)).fetchall()
             return [dict(row) for row in rows]
 
+    def top_files(self, snapshot_id: str, limit: int) -> list[dict[str, object]]:
+        with self._connection() as connection:
+            rows = connection.execute("""SELECT relative_path, name, size_bytes, mtime
+                FROM file_snapshots WHERE snapshot_id = ?
+                ORDER BY size_bytes DESC, relative_path LIMIT ?""", (snapshot_id, limit)).fetchall()
+            return [dict(row) for row in rows]
+
+    def top_directories(self, snapshot_id: str, limit: int) -> list[dict[str, object]]:
+        with self._connection() as connection:
+            rows = connection.execute("""SELECT relative_path, parent_relative_path, name,
+                direct_bytes, subtree_bytes, file_count, directory_count, coverage
+                FROM directory_snapshots WHERE snapshot_id = ? AND relative_path <> ''
+                ORDER BY subtree_bytes DESC, relative_path LIMIT ?""", (snapshot_id, limit)).fetchall()
+            return [dict(row) for row in rows]
+
     def compare(self, base_id: str, target_id: str) -> dict[str, object]:
         with self._connection() as connection:
             def summary(snapshot_id: str) -> dict[str, object]:

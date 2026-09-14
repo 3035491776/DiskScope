@@ -19,7 +19,7 @@ export function completionLabel(scan: ScanStatus): string {
   if (scan.state === 'failed') return '扫描失败'
   if (scan.state === 'cancelled') return '已取消'
   if (scan.state === 'completed' && (scan.errors_count > 0 || scan.skipped_count > 0)) {
-    return '扫描完成，覆盖受限'
+    return '扫描完成 · 部分位置未覆盖'
   }
   return stateLabel(scan.state)
 }

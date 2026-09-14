@@ -119,6 +119,7 @@ export interface SnapshotComparison {
 export interface ScanMetrics {
   duration_ms: number
   files_per_second: number
+  rss_current_bytes: number | null
   rss_peak_observed_bytes: number | null
   cpu_seconds: number | null
   process_read_bytes_before: number | null
@@ -150,7 +151,7 @@ export interface DirectoryItem {
   parent: string | null
   direct_bytes: number
   subtree_bytes: number
-  direct_file_count: number
+  direct_file_count: number | null
   file_count: number
   children_count: number
   coverage: 'complete' | 'limited'
@@ -245,6 +246,53 @@ export async function getTopDirectories(scanId: string, limit = 100): Promise<Di
     `/api/v1/scans/${encodeURIComponent(scanId)}/top?kind=directory&limit=${limit}`,
   )
   return result.items
+}
+
+export type ResultSourceType = 'live' | 'snapshot' | 'none'
+
+export interface ResolvedResult {
+  scope_key: string
+  source_type: ResultSourceType
+  result_id: string | null
+  snapshot_id: string | null
+  completed_at: string | null
+  coverage: 'complete' | 'limited' | null
+  storage_status: 'ready' | 'unavailable'
+  summary: {
+    total_bytes: number
+    file_count: number
+    directory_count: number
+    duration_seconds: number
+    error_count: number
+    skipped_count: number
+  } | null
+}
+
+export const scopeForTarget: Record<ScanTarget, string> = {
+  fixture: 'fixture_sample', project: 'project_workspace', c_drive: 'system_drive_c',
+}
+
+export function getLatestResult(target: ScanTarget): Promise<ResolvedResult> {
+  return apiJson(`/api/v1/results/latest?scope_key=${scopeForTarget[target]}`)
+}
+
+function resultUrl(result: ResolvedResult, suffix: string): string {
+  if (!result.result_id || result.source_type === 'none') throw new Error('暂无已保存扫描结果')
+  return `/api/v1/results/${result.source_type}/${encodeURIComponent(result.result_id)}/${suffix}`
+}
+
+export async function getResultDirectories(result: ResolvedResult, parentId = ''): Promise<DirectoryItem[]> {
+  const query = new URLSearchParams({ scope_key: result.scope_key, parent_id: parentId })
+  const payload = await apiJson<{ items: DirectoryItem[] }>(resultUrl(result, `directories?${query}`))
+  return payload.items
+}
+
+export async function getResultTop(result: ResolvedResult, kind: 'file', limit?: number): Promise<FileItem[]>
+export async function getResultTop(result: ResolvedResult, kind: 'directory', limit?: number): Promise<DirectoryItem[]>
+export async function getResultTop(result: ResolvedResult, kind: 'file' | 'directory', limit = 100): Promise<FileItem[] | DirectoryItem[]> {
+  const query = new URLSearchParams({ scope_key: result.scope_key, kind, limit: String(limit) })
+  const payload = await apiJson<{ items: FileItem[] | DirectoryItem[] }>(resultUrl(result, `top?${query}`))
+  return payload.items
 }
 
 export async function getVolumes(): Promise<VolumeItem[]> {

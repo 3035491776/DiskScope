@@ -1,6 +1,8 @@
 """Best-effort process counters for development; no target file is opened."""
 
 import os
+import threading
+import time
 from dataclasses import dataclass
 
 
@@ -84,35 +86,54 @@ def read_process_sample() -> ProcessSample:
 
 class ScanResourceMonitor:
     def __init__(self) -> None:
-        self.before = read_process_sample()
+        self._lock = threading.RLock()
+        self.before = self._read()
+        self.current = self.before
         self.peak_observed_rss = self.before.rss_bytes
+        self._last_sample_clock = time.monotonic()
 
-    def sample(self) -> None:
-        rss = read_process_sample().rss_bytes
-        if rss is not None:
-            self.peak_observed_rss = max(self.peak_observed_rss or 0, rss)
+    @staticmethod
+    def _read() -> ProcessSample:
+        try:
+            return read_process_sample()
+        except Exception:  # A metrics provider failure must not affect scanning.
+            return ProcessSample()
+
+    def sample(self, force: bool = False) -> None:
+        with self._lock:
+            now = time.monotonic()
+            if not force and now - self._last_sample_clock < 1.0:
+                return
+            self.current = self._read()
+            self._last_sample_clock = now
+            if self.current.rss_bytes is not None:
+                self.peak_observed_rss = max(self.peak_observed_rss or 0, self.current.rss_bytes)
+
+    def snapshot(self, files: int, duration_ms: int, force: bool = False) -> dict[str, int | float | None]:
+        self.sample(force=force)
+        with self._lock:
+            after = self.current
+
+            def delta(field: str) -> int | float | None:
+                first = getattr(self.before, field)
+                last = getattr(after, field)
+                return max(0, last - first) if first is not None and last is not None else None
+
+            return {
+                "duration_ms": duration_ms,
+                "files_per_second": round(files / max(duration_ms / 1000, 0.001), 1),
+                "rss_current_bytes": after.rss_bytes,
+                "rss_peak_observed_bytes": self.peak_observed_rss,
+                "cpu_seconds": delta("cpu_seconds"),
+                "process_read_bytes_before": self.before.read_bytes,
+                "process_read_bytes_after": after.read_bytes,
+                "delta_read_bytes": delta("read_bytes"),
+                "process_write_bytes_before": self.before.write_bytes,
+                "process_write_bytes_after": after.write_bytes,
+                "delta_write_bytes": delta("write_bytes"),
+                "delta_read_operations": delta("read_operations"),
+                "delta_write_operations": delta("write_operations"),
+            }
 
     def finish(self, files: int, duration_ms: int) -> dict[str, int | float | None]:
-        after = read_process_sample()
-        if after.rss_bytes is not None:
-            self.peak_observed_rss = max(self.peak_observed_rss or 0, after.rss_bytes)
-
-        def delta(field: str) -> int | float | None:
-            first = getattr(self.before, field)
-            last = getattr(after, field)
-            return last - first if first is not None and last is not None else None
-
-        return {
-            "duration_ms": duration_ms,
-            "files_per_second": round(files / max(duration_ms / 1000, 0.001), 1),
-            "rss_peak_observed_bytes": self.peak_observed_rss,
-            "cpu_seconds": delta("cpu_seconds"),
-            "process_read_bytes_before": self.before.read_bytes,
-            "process_read_bytes_after": after.read_bytes,
-            "delta_read_bytes": delta("read_bytes"),
-            "process_write_bytes_before": self.before.write_bytes,
-            "process_write_bytes_after": after.write_bytes,
-            "delta_write_bytes": delta("write_bytes"),
-            "delta_read_operations": delta("read_operations"),
-            "delta_write_operations": delta("write_operations"),
-        }
+        return self.snapshot(files, duration_ms, force=True)

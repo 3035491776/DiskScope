@@ -2,7 +2,8 @@
 import { computed, ref, watch } from 'vue'
 import EmptyState from '../components/EmptyState.vue'
 import SpaceBreakdownChart from '../components/SpaceBreakdownChart.vue'
-import { getDirectories } from '../services/api'
+import ResultSourceBanner from '../components/ResultSourceBanner.vue'
+import { getResultDirectories } from '../services/api'
 import type { DirectoryItem } from '../services/api'
 import { useScanStore } from '../stores/scan'
 import { formatBytes, formatNumber } from '../utils/format'
@@ -15,15 +16,16 @@ const loading = ref(false)
 const error = ref('')
 let requestNumber = 0
 const current = computed(() => crumbs.value.at(-1))
-const currentSize = computed(() => current.value?.size ?? store.scan?.logical_bytes ?? 0)
+const currentSize = computed(() => current.value?.size ?? store.result?.summary?.total_bytes ?? 0)
 
 async function loadLevel(parentId: string) {
-  if (!store.scan) return
+  const result = store.result
+  if (!result || result.source_type === 'none') return
   const request = ++requestNumber
   loading.value = true
   error.value = ''
   try {
-    const items = await getDirectories(store.scan.scan_id, parentId)
+    const items = await getResultDirectories(result, parentId)
     if (request === requestNumber) children.value = items
   } catch (reason) {
     if (request === requestNumber) {
@@ -45,9 +47,9 @@ function navigateTo(index: number) {
   void loadLevel(crumbs.value[index]?.id ?? '')
 }
 
-watch([() => store.scan?.scan_id, () => store.scan?.state], ([id, state]) => {
-  if (id && (state === 'completed' || state === 'cancelled')) {
-    crumbs.value = [{ id: '', name: targetName(store.resultTarget), size: store.scan?.logical_bytes ?? 0 }]
+watch([() => store.result?.result_id, () => store.result?.source_type, () => store.result?.scope_key], ([id, source]) => {
+  if (id && source !== 'none') {
+    crumbs.value = [{ id: '', name: targetName(store.resultTarget), size: store.result?.summary?.total_bytes ?? 0 }]
     void loadLevel('')
   } else {
     requestNumber += 1
@@ -60,13 +62,14 @@ watch([() => store.scan?.scan_id, () => store.scan?.state], ([id, state]) => {
 
 <template>
   <div class="page-heading"><div><p class="eyebrow">EXPLORE / DIRECTORY</p><h1>空间分析</h1><p class="page-description">每次只读取当前层级；数字、图表和目录表对应同一份扫描结果。</p></div></div>
-  <EmptyState v-if="!store.scan || !['completed', 'cancelled'].includes(store.scan.state)" title="需要完成一次扫描" description="前往总览选择固定范围。扫描完成后，可逐层查看目录占用。" />
+  <ResultSourceBanner />
+  <EmptyState v-if="!store.result || store.result.source_type === 'none'" title="暂无已保存扫描结果" description="前往总览选择固定范围。扫描完成后，可逐层查看目录占用。" />
   <template v-else>
     <p v-if="store.resultTarget === 'c_drive'" class="coverage-note">C: 结果是扫描可见的文件逻辑大小，不等于磁盘已用空间；受保护目录可能覆盖受限。</p>
     <section class="panel analysis-head">
       <nav class="breadcrumbs" aria-label="目录路径"><template v-for="(crumb, index) in crumbs" :key="crumb.id"><span v-if="index" class="breadcrumb-divider">›</span><button type="button" :aria-current="index === crumbs.length - 1 ? 'page' : undefined" @click="navigateTo(index)">{{ crumb.name }}</button></template></nav>
       <div class="analysis-current"><div><p class="eyebrow">当前目录逻辑大小</p><strong>{{ formatBytes(currentSize) }}</strong></div><span>{{ children.length }} 个直接子目录</span></div>
-      <p v-if="store.scan.state === 'cancelled'" class="inline-note">扫描已取消；此处仅展示取消前收集到的目录。</p>
+      <p v-if="store.scan?.state === 'cancelled' && store.scan.scope_key === store.result?.scope_key" class="inline-note">最近任务已取消；此处仍展示上一次完成的扫描结果。</p>
     </section>
     <p v-if="error" class="inline-error" role="alert">{{ error }}</p>
     <p v-if="loading" class="inline-note">正在读取当前层级…</p>

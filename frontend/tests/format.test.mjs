@@ -15,8 +15,8 @@ test('byte formatter distinguishes zero, units and unavailable', () => {
 test('terminal states distinguish limited coverage, failure and cancellation', () => {
   const base = { state: 'completed', errors_count: 0, skipped_count: 0 }
   assert.equal(completionLabel(base), '扫描完成')
-  assert.equal(completionLabel({ ...base, errors_count: 2 }), '扫描完成，覆盖受限')
-  assert.equal(completionLabel({ ...base, skipped_count: 1 }), '扫描完成，覆盖受限')
+  assert.equal(completionLabel({ ...base, errors_count: 2 }), '扫描完成 · 部分位置未覆盖')
+  assert.equal(completionLabel({ ...base, skipped_count: 1 }), '扫描完成 · 部分位置未覆盖')
   assert.equal(completionLabel({ ...base, state: 'failed' }), '扫描失败')
   assert.equal(completionLabel({ ...base, state: 'cancelled' }), '已取消')
   assert.equal(stateLabel('cancelling'), '正在取消')

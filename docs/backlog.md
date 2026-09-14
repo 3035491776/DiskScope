@@ -1,4 +1,6 @@
 # 后续事项
 
-- `PERSISTENT_SCAN_RESULT_RESTORE`（M4.1）：重启后 Dashboard、空间分析及大文件与目录目前依赖 ScanManager 内存结果；后续从 latest completed snapshot 恢复浏览。M5 Recommendations 已直接读取 SQLite，不在本轮重构这些页面。
-- `REALTIME_PROCESS_METRICS`：运行中的扫描尚未持续展示进程资源指标；单独处理，不纳入 M5。
+- `PERSISTENT_SCAN_RESULT_RESTORE`：M5.1 已实现统一结果来源与快照恢复；真实浏览器重启验收待补。
+- `REALTIME_PROCESS_METRICS`：M5.1 已实现低频运行中采样；真实浏览器显示待补验。
+- `LONG_PATH_LAYOUT_OVERFLOW`：M5.1 已修复布局契约；1920/1366/1280 px 视觉验收待补。
+- `COVERAGE_ERROR_UX`：M5.1 已提供人类可读分组及技术详情；真实浏览器验收待补。

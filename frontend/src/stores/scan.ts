@@ -1,9 +1,9 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
 import {
-  cancelScan, createScan, establishSession, getCurrentScan, getHealth, getScan, getVolumes,
+  cancelScan, createScan, establishSession, getCurrentScan, getHealth, getLatestResult, getScan, getVolumes,
 } from '../services/api'
-import type { HealthResponse, ScanStatus, ScanTarget, VolumeItem } from '../services/api'
+import type { HealthResponse, ResolvedResult, ScanStatus, ScanTarget, VolumeItem } from '../services/api'
 import { isActive } from '../utils/presentation'
 
 type ServiceState = 'checking' | 'online' | 'offline'
@@ -16,12 +16,38 @@ export const useScanStore = defineStore('scan', () => {
   const resultTarget = ref<ScanTarget>('fixture')
   const scan = ref<ScanStatus | null>(null)
   const recentCompleted = ref<ScanStatus | null>(null)
+  const result = ref<ResolvedResult | null>(null)
+  const resultLoading = ref(false)
   const volumes = ref<VolumeItem[]>([])
   const volumesState = ref<'loading' | 'ready' | 'unavailable'>('loading')
   const message = ref('')
   const starting = ref(false)
   let timer: ReturnType<typeof setInterval> | null = null
   let refreshing = false
+  let resultRequest = 0
+
+  async function loadResult(target: ScanTarget = resultTarget.value) {
+    const request = ++resultRequest
+    resultTarget.value = target
+    resultLoading.value = true
+    result.value = null
+    try {
+      const resolved = await getLatestResult(target)
+      if (request === resultRequest) result.value = resolved
+    } catch {
+      if (request === resultRequest) result.value = null
+    } finally {
+      if (request === resultRequest) resultLoading.value = false
+    }
+  }
+
+  async function restoreResult() {
+    const targets: ScanTarget[] = scan.value ? [resultTarget.value] : ['c_drive', 'project', 'fixture']
+    for (const target of targets) {
+      await loadResult(target)
+      if (!result.value || result.value.source_type !== 'none' || result.value.storage_status === 'unavailable') break
+    }
+  }
 
   function stopPolling() {
     if (timer) clearInterval(timer)
@@ -62,6 +88,7 @@ export const useScanStore = defineStore('scan', () => {
       if (sessionReady.value) {
         await loadVolumes()
         await restoreCurrentScan()
+        await restoreResult()
       }
       else message.value = '请从 start.bat 打开本地页面，以启用扫描。'
     } catch {
@@ -103,6 +130,7 @@ export const useScanStore = defineStore('scan', () => {
       if (!isActive(latest) && !(latest.state === 'completed' && latest.snapshot_status === 'pending')) {
         stopPolling()
         if (latest.state === 'completed') recentCompleted.value = latest
+        if (latest.state === 'completed') await loadResult(resultTarget.value)
       }
     } catch (error) {
       message.value = error instanceof Error ? error.message : '无法获取扫描状态'
@@ -122,6 +150,7 @@ export const useScanStore = defineStore('scan', () => {
       const created = await createScan(target)
       selectedTarget.value = target
       resultTarget.value = target
+      await loadResult(target)
       scan.value = await getScan(created.scan_id)
       stopPolling()
       timer = setInterval(() => void refreshScan(), 400)
@@ -146,7 +175,7 @@ export const useScanStore = defineStore('scan', () => {
 
   return {
     serviceState, health, sessionReady, selectedTarget, resultTarget, scan,
-    recentCompleted, volumes, volumesState, message, starting, checkService,
-    initialize, reconnect, loadVolumes, startScan, requestCancel, refreshScan,
+    recentCompleted, result, resultLoading, volumes, volumesState, message, starting, checkService,
+    initialize, reconnect, loadVolumes, loadResult, startScan, requestCancel, refreshScan,
   }
 })

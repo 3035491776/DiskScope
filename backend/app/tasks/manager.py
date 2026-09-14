@@ -63,6 +63,7 @@ class ScanTask:
     snapshot_error_code: str | None = None
     result: ScanResult | None = field(default=None, repr=False)
     metrics: dict[str, int | float | None] | None = None
+    monitor: ScanResourceMonitor | None = field(default=None, repr=False)
     cancel_event: threading.Event = field(default_factory=threading.Event, repr=False)
     started_clock: float | None = field(default=None, repr=False)
     finished_clock: float | None = field(default=None, repr=False)
@@ -97,7 +98,8 @@ class ScanTask:
             },
             "errors": self.result.errors if self.result else {},
             "exclusions": self.result.exclusions if self.result else {},
-            "metrics": self.metrics,
+            "metrics": (self.monitor.snapshot(self.files_seen, elapsed_ms)
+                        if self.state in ACTIVE_STATES and self.monitor else self.metrics),
             "cancel_requested": self.cancel_requested,
             "error_code": self.error_code,
             "error_message": self.error_message,
@@ -146,6 +148,8 @@ class ScanTaskManager:
             task.state = "cancelling" if task.cancel_requested else "running"
             task.phase = "enumerating"
         monitor = ScanResourceMonitor()
+        with self._lock:
+            task.monitor = monitor
         last_sample_items = 0
 
         def update_progress(result: ScanResult) -> None:
@@ -177,6 +181,7 @@ class ScanTaskManager:
                 task.metrics = monitor.finish(task.files_seen, round(
                     (task.finished_clock - task.started_clock) * 1000
                 ))
+                task.monitor = None
             if task.state == "completed" and self._snapshot_store is not None:
                 try:
                     snapshot_id = self._snapshot_store.save(task.public_status(), result, task.root_path)
@@ -202,6 +207,7 @@ class ScanTaskManager:
                 task.metrics = monitor.finish(task.files_seen, round(
                     (task.finished_clock - task.started_clock) * 1000
                 ))
+                task.monitor = None
         except OSError as exc:
             logging.error("Approved scan failed with %s", type(exc).__name__)
             with self._lock:
@@ -214,6 +220,7 @@ class ScanTaskManager:
                 task.metrics = monitor.finish(task.files_seen, round(
                     (task.finished_clock - task.started_clock) * 1000
                 ))
+                task.monitor = None
         except Exception as exc:
             logging.error("Approved scan failed with %s", type(exc).__name__)
             with self._lock:
@@ -226,6 +233,7 @@ class ScanTaskManager:
                 task.metrics = monitor.finish(task.files_seen, round(
                     (task.finished_clock - task.started_clock) * 1000
                 ))
+                task.monitor = None
 
     def status(self, scan_id: str) -> dict[str, object]:
         with self._lock:
@@ -236,6 +244,13 @@ class ScanTaskManager:
             if not self._tasks:
                 return None
             return self._tasks[next(reversed(self._tasks))].public_status()
+
+    def latest_completed_status(self, scope_key: str) -> dict[str, object] | None:
+        with self._lock:
+            for task in reversed(tuple(self._tasks.values())):
+                if task.scope_key == scope_key and task.state == "completed" and task.result is not None:
+                    return task.public_status()
+            return None
 
     def cancel(self, scan_id: str) -> dict[str, object]:
         with self._lock:
