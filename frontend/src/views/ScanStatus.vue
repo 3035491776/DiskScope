@@ -28,6 +28,8 @@ const reasonNames: Record<string, string> = {
       <p v-if="store.scan.state === 'failed'" class="inline-error" role="alert">扫描失败：{{ store.scan.error_message || store.scan.error_code || '原因未知' }}</p>
       <p v-else-if="store.scan.state === 'cancelled'" class="inline-note">任务已取消；以下统计可能不完整。</p>
       <p v-else-if="store.scan.state === 'completed' && (store.scan.errors_count || store.scan.skipped_count)" class="coverage-note">扫描完成，覆盖受限。部分目录按安全策略跳过，或发生了可解释的读取错误。</p>
+      <p v-if="store.scan.state === 'completed' && store.scan.snapshot_status === 'pending'" class="inline-note">正在保存历史快照…</p>
+      <p v-if="store.scan.state === 'completed' && store.scan.snapshot_status === 'failed'" class="inline-error" role="alert">扫描已完成，但历史快照保存失败（{{ store.scan.snapshot_error_code }}）。当前扫描结果仍可查看。</p>
     </section>
     <div class="two-column">
       <section class="panel"><div class="panel-heading"><div><p class="eyebrow">COVERAGE</p><h2>错误与跳过</h2></div><span class="subtle-label">错误 {{ formatNumber(store.scan.errors_count) }} · 跳过 {{ formatNumber(store.scan.skipped_count) }}</span></div>

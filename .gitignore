@@ -3,6 +3,9 @@ node_modules/
 frontend/dist/
 data/*
 !data/.gitkeep
+data/*.db
+data/*.db-shm
+data/*.db-wal
 logs/
 tests/fixtures/sample_disk/
 tests/fixtures/medium_disk/

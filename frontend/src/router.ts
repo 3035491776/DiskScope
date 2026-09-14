@@ -8,6 +8,7 @@ export default createRouter({
     { path: '/analysis', component: () => import('./views/SpaceAnalysis.vue') },
     { path: '/large-items', component: () => import('./views/LargeItems.vue') },
     { path: '/status', component: () => import('./views/ScanStatus.vue') },
+    { path: '/history', component: () => import('./views/History.vue') },
     { path: '/settings', component: () => import('./views/Settings.vue') },
   ],
 })

@@ -50,6 +50,59 @@ export interface ScanStatus {
   cancel_requested: boolean
   error_code: string | null
   error_message: string | null
+  snapshot_status: 'not_applicable' | 'pending' | 'saved' | 'failed'
+  snapshot_id: string | null
+  snapshot_error_code: string | null
+}
+
+export interface SnapshotSummary {
+  snapshot_id: string
+  scope_key: string
+  scope_label: string
+  completed_at: string
+  total_bytes: number
+  file_count: number
+  directory_count: number
+  error_count: number
+  skipped_count: number
+  coverage: 'complete' | 'limited'
+}
+
+export interface DirectoryChange {
+  relative_path: string
+  name: string
+  base_bytes: number
+  target_bytes: number
+  delta_bytes: number
+  delta_ratio: number | null
+  change_type: 'added' | 'removed' | 'grown' | 'shrunk' | 'unchanged'
+}
+
+export interface LargeFileChange {
+  relative_path: string
+  name: string
+  base_bytes: number
+  target_bytes: number
+  delta_bytes: number
+  change_type: string
+}
+
+export interface SnapshotComparison {
+  base_snapshot: SnapshotSummary
+  target_snapshot: SnapshotSummary
+  total_bytes_delta: number
+  total_bytes_delta_ratio: number | null
+  file_count_delta: number
+  directory_count_delta: number
+  comparison_coverage_limited: boolean
+  growth_by_bytes: DirectoryChange[]
+  growth_by_ratio: DirectoryChange[]
+  directory_changes: DirectoryChange[]
+  directory_change_counts: Record<string, number>
+  new_large_files: LargeFileChange[]
+  removed_large_files: LargeFileChange[]
+  grown_large_files: LargeFileChange[]
+  shrunk_large_files: LargeFileChange[]
 }
 
 export interface ScanMetrics {
@@ -175,4 +228,15 @@ export async function getTopDirectories(scanId: string, limit = 100): Promise<Di
 export async function getVolumes(): Promise<VolumeItem[]> {
   const result = await apiJson<{ items: VolumeItem[] }>('/api/v1/volumes')
   return result.items
+}
+
+export async function getSnapshots(scopeKey: string): Promise<SnapshotSummary[]> {
+  const response = await apiJson<{ items: SnapshotSummary[] }>(
+    `/api/v1/snapshots?scope_key=${encodeURIComponent(scopeKey)}&limit=20`,
+  )
+  return response.items
+}
+
+export function compareSnapshots(base: string, target: string): Promise<SnapshotComparison> {
+  return apiJson(`/api/v1/compare?base=${encodeURIComponent(base)}&target=${encodeURIComponent(target)}`)
 }

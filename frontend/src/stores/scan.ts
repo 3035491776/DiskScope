@@ -76,7 +76,7 @@ export const useScanStore = defineStore('scan', () => {
     try {
       const latest = await getScan(scan.value.scan_id)
       scan.value = latest
-      if (!isActive(latest)) {
+      if (!isActive(latest) && !(latest.state === 'completed' && latest.snapshot_status === 'pending')) {
         stopPolling()
         if (latest.state === 'completed') recentCompleted.value = latest
       }

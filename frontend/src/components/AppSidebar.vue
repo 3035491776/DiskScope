@@ -6,6 +6,7 @@ const links = [
   { to: '/analysis', label: '空间分析', icon: '▤' },
   { to: '/large-items', label: '大文件与目录', icon: '▣' },
   { to: '/status', label: '扫描状态', icon: '◷' },
+  { to: '/history', label: '历史与变化', icon: '◫' },
   { to: '/settings', label: '设置与说明', icon: '⚙' },
 ]
 </script>

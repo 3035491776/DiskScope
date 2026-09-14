@@ -13,6 +13,7 @@ from app.scanner.metrics import ScanResourceMonitor
 from app.scanner.path_guard import validate_scan_root
 from app.scanner.policy import SCAN_POLICY
 from app.scanner.service import scan_fixture
+from app.snapshots.store import SnapshotStore, SnapshotStoreError, snapshot_store
 
 
 ACTIVE_STATES = {"queued", "running", "cancelling"}
@@ -54,6 +55,9 @@ class ScanTask:
     cancel_requested: bool = False
     error_code: str | None = None
     error_message: str | None = None
+    snapshot_status: str = "not_applicable"
+    snapshot_id: str | None = None
+    snapshot_error_code: str | None = None
     result: ScanResult | None = field(default=None, repr=False)
     metrics: dict[str, int | float | None] | None = None
     cancel_event: threading.Event = field(default_factory=threading.Event, repr=False)
@@ -83,13 +87,17 @@ class ScanTask:
             "cancel_requested": self.cancel_requested,
             "error_code": self.error_code,
             "error_message": self.error_message,
+            "snapshot_status": self.snapshot_status,
+            "snapshot_id": self.snapshot_id,
+            "snapshot_error_code": self.snapshot_error_code,
         }
 
 
 class ScanTaskManager:
-    def __init__(self) -> None:
+    def __init__(self, snapshot_store: SnapshotStore | None = None) -> None:
         self._lock = threading.RLock()
         self._tasks: OrderedDict[str, ScanTask] = OrderedDict()
+        self._snapshot_store = snapshot_store
 
     def create(self, requested_root: str) -> dict[str, object]:
         root_path, root_label = validate_scan_root(requested_root)
@@ -141,9 +149,25 @@ class ScanTaskManager:
                 task.finished_clock = time.monotonic()
                 task.state = "cancelled" if result.cancelled else "completed"
                 task.phase = task.state
+                if task.state == "completed" and self._snapshot_store is not None:
+                    task.snapshot_status = "pending"
                 task.metrics = monitor.finish(task.files_seen, round(
                     (task.finished_clock - task.started_clock) * 1000
                 ))
+            if task.state == "completed" and self._snapshot_store is not None:
+                try:
+                    snapshot_id = self._snapshot_store.save(task.public_status(), result, task.root_path)
+                    with self._lock:
+                        task.snapshot_id = snapshot_id
+                        task.snapshot_status = "saved"
+                except Exception as exc:
+                    logging.error("Snapshot save failed with %s", type(exc).__name__)
+                    with self._lock:
+                        task.snapshot_status = "failed"
+                        task.snapshot_error_code = (
+                            exc.code if isinstance(exc, SnapshotStoreError)
+                            else "SNAPSHOT_DATABASE_UNAVAILABLE"
+                        )
         except RootUnavailable:
             with self._lock:
                 task.finished_at = utc_now()
@@ -208,4 +232,4 @@ class ScanTaskManager:
             raise ScanNotFound("Scan not found.") from exc
 
 
-scan_tasks = ScanTaskManager()
+scan_tasks = ScanTaskManager(snapshot_store)
