@@ -262,3 +262,76 @@ export async function getSnapshots(scopeKey: string): Promise<SnapshotSummary[]>
 export function compareSnapshots(base: string, target: string): Promise<SnapshotComparison> {
   return apiJson(`/api/v1/compare?base=${encodeURIComponent(base)}&target=${encodeURIComponent(target)}`)
 }
+
+export interface CleanupCandidate {
+  candidate_id: string
+  relative_path: string
+  display_path: string
+  object_type: 'file' | 'directory' | 'group'
+  logical_bytes: number
+  category: string
+  risk_level: 'protected' | 'high' | 'review' | 'low'
+  confidence: 'high' | 'medium' | 'low'
+  reason_code: string
+  title: string
+  summary: string
+  explanation: string
+  evidence: string[]
+  recommended_action: string
+  requires_manual_review: boolean
+  source_rule_id: string
+  rule_version: string
+  group_id: string | null
+}
+
+export interface CandidateRun {
+  run_id: string
+  snapshot_id: string
+  rule_version: string
+  created_at: string
+  status: 'completed'
+  duration_ms: number
+  analysis_coverage: 'top_k_and_directories'
+  scope_key: string
+  scope_label: string
+  scan_completed_at: string
+  snapshot_coverage: 'complete' | 'limited'
+  error_count: number
+  skipped_count: number
+}
+
+export interface CandidateSummary {
+  candidate_count: number
+  candidate_bytes: number
+  by_category: Record<string, number>
+  by_risk: Record<string, number>
+  by_confidence: Record<string, number>
+  protected_count: number
+  review_count: number
+  low_count: number
+  unknown_count: number
+}
+
+export interface CandidateListing {
+  latest_snapshot: SnapshotSummary | null
+  run: CandidateRun | null
+  summary: CandidateSummary | null
+  items: CleanupCandidate[]
+  total: number
+}
+
+export function getCandidates(filters: { category?: string; risk?: string; confidence?: string; limit?: number } = {}): Promise<CandidateListing> {
+  const query = new URLSearchParams({ scope_key: 'system_drive_c', limit: String(filters.limit ?? 100) })
+  if (filters.category) query.set('category', filters.category)
+  if (filters.risk) query.set('risk', filters.risk)
+  if (filters.confidence) query.set('confidence', filters.confidence)
+  return apiJson(`/api/v1/candidates?${query}`)
+}
+
+export function analyzeSnapshot(snapshotId: string): Promise<{ run: CandidateRun; summary: CandidateSummary }> {
+  return apiJson(`/api/v1/snapshots/${encodeURIComponent(snapshotId)}/analyze`, { method: 'POST' })
+}
+
+export function getCandidateDetail(candidateId: string): Promise<{ candidate: CleanupCandidate; members: CleanupCandidate[] }> {
+  return apiJson(`/api/v1/candidates/${encodeURIComponent(candidateId)}?scope_key=system_drive_c`)
+}

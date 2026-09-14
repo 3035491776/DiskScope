@@ -14,7 +14,7 @@ from app.scanner.models import ScanResult
 from app.snapshots.compare import compare_directories, compare_top_files, delta_ratio
 
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 RETENTION_PER_SCOPE = 20
 DEFAULT_DATABASE = PROJECT_ROOT / "data" / "diskscope.db"
 SUMMARY_COLUMNS = ("id AS snapshot_id, scan_id, scope_key, scope_label, status, "
@@ -70,6 +70,10 @@ class SnapshotStore:
                 )}
                 if not expected <= actual:
                     raise SnapshotStoreError("SNAPSHOT_DATABASE_UNAVAILABLE")
+                if version == 1:
+                    self._migrate_v1_to_v2(connection)
+                elif not {"candidate_runs", "cleanup_candidates"} <= actual:
+                    raise SnapshotStoreError("SNAPSHOT_DATABASE_UNAVAILABLE")
             yield connection
         except sqlite3.Error as exc:
             raise SnapshotStoreError("SNAPSHOT_DATABASE_UNAVAILABLE") from exc
@@ -111,7 +115,42 @@ class SnapshotStore:
             connection.execute("CREATE INDEX scan_scope_time ON scan_snapshots(scope_key, completed_at DESC)")
             connection.execute("CREATE INDEX directory_parent ON directory_snapshots(snapshot_id, parent_relative_path)")
             # The UNIQUE constraints also index (snapshot_id, relative_path) for both child tables.
+            SnapshotStore._create_candidate_tables(connection)
             connection.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
+            connection.commit()
+        except Exception:
+            connection.rollback()
+            raise
+
+    @staticmethod
+    def _create_candidate_tables(connection: sqlite3.Connection) -> None:
+        connection.execute("""CREATE TABLE candidate_runs (
+            id TEXT PRIMARY KEY, snapshot_id TEXT NOT NULL REFERENCES scan_snapshots(id)
+            ON DELETE CASCADE, rule_version TEXT NOT NULL, created_at TEXT NOT NULL,
+            status TEXT NOT NULL CHECK(status = 'completed'), duration_ms INTEGER NOT NULL,
+            analysis_coverage TEXT NOT NULL,
+            UNIQUE(snapshot_id, rule_version))""")
+        connection.execute("""CREATE TABLE cleanup_candidates (
+            candidate_id TEXT PRIMARY KEY, run_id TEXT NOT NULL REFERENCES candidate_runs(id)
+            ON DELETE CASCADE, relative_path TEXT NOT NULL, display_path TEXT NOT NULL,
+            object_type TEXT NOT NULL, logical_bytes INTEGER NOT NULL,
+            category TEXT NOT NULL, risk_level TEXT NOT NULL, confidence TEXT NOT NULL,
+            reason_code TEXT NOT NULL, title TEXT NOT NULL, summary TEXT NOT NULL,
+            explanation TEXT NOT NULL, evidence_json TEXT NOT NULL,
+            recommended_action TEXT NOT NULL, requires_manual_review INTEGER NOT NULL,
+            source_rule_id TEXT NOT NULL, rule_version TEXT NOT NULL,
+            group_id TEXT,
+            UNIQUE(run_id, object_type, relative_path))""")
+        connection.execute("CREATE INDEX candidate_run_group ON cleanup_candidates(run_id, group_id)")
+        connection.execute("CREATE INDEX candidate_run_filter ON cleanup_candidates(run_id, risk_level, category, confidence)")
+
+    @staticmethod
+    def _migrate_v1_to_v2(connection: sqlite3.Connection) -> None:
+        try:
+            connection.execute("BEGIN IMMEDIATE")
+            if connection.execute("PRAGMA user_version").fetchone()[0] == 1:
+                SnapshotStore._create_candidate_tables(connection)
+                connection.execute("PRAGMA user_version = 2")
             connection.commit()
         except Exception:
             connection.rollback()

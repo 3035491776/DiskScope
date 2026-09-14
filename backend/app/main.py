@@ -8,6 +8,7 @@ from app.api.scans import router as scans_router
 from app.api.volumes import router as volumes_router
 from app.api.session import router as session_router
 from app.api.snapshots import router as snapshots_router
+from app.api.candidates import router as candidates_router
 from app.core.config import APP_NAME, APP_VERSION, FRONTEND_DIST, HOST, PORT
 
 
@@ -24,6 +25,7 @@ app.include_router(session_router)
 app.include_router(scans_router)
 app.include_router(volumes_router)
 app.include_router(snapshots_router)
+app.include_router(candidates_router)
 
 
 @app.middleware("http")
@@ -37,7 +39,7 @@ if FRONTEND_DIST.is_dir():
 
     @app.get("/{page}", include_in_schema=False)
     def frontend_page(page: str) -> FileResponse:
-        if page not in {"dashboard", "analysis", "large-items", "status", "history", "settings"}:
+        if page not in {"dashboard", "analysis", "large-items", "status", "history", "recommendations", "settings"}:
             from fastapi import HTTPException
             raise HTTPException(status_code=404)
         return FileResponse(FRONTEND_DIST / "index.html")

@@ -21,6 +21,17 @@ h1,h2,h3,p{margin-top:0}
 .nav-icon{width:20px;text-align:center;font-size:17px;line-height:1}
 .sidebar-foot{margin-top:auto;border-top:1px solid #32404b;padding:18px 12px 0;color:#a5b7c2;font-size:11px;white-space:nowrap}
 .foot-dot,.state-dot{display:inline-block;width:8px;height:8px;border-radius:50%;background:#6bb08b;margin-right:6px}
+.recommendation-meta{display:flex;flex-wrap:wrap;gap:8px 22px;color:#5b6d7a;font-size:12px;line-height:1.6}
+.recommendation-filters{margin-top:18px}.recommendation-filters .scan-controls label{display:flex;align-items:center;gap:8px}
+.recommendation-list{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+.recommendation-item{border:1px solid #e1e6ea;border-radius:8px;padding:15px 17px;min-width:0;background:#fbfcfd}
+.recommendation-item-head{display:flex;justify-content:space-between;gap:12px;align-items:start}.recommendation-item-head>strong{white-space:nowrap}
+.recommendation-item-head .path-cell{margin:5px 0 0;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.recommendation-item>p{color:#607481;font-size:12px;line-height:1.5;margin:10px 0}
+.recommendation-tags{display:flex;flex-wrap:wrap;gap:6px;margin:10px 0}.recommendation-tags span{border:1px solid #dce5e9;border-radius:999px;padding:3px 8px;color:#556d7c;background:#f6f9fa;font-size:11px}
+.recommendation-detail{max-height:88vh;overflow-y:auto;max-width:720px}.recommendation-detail h3{font-size:14px;margin:18px 0 8px}.recommendation-detail li{font-size:12px;line-height:1.6;margin-bottom:4px}.recommendation-detail .path-cell{overflow-wrap:anywhere}
+.member-list{max-height:180px;overflow:auto;border:1px solid #e3e9ed;border-radius:6px}.member-list>div{display:flex;justify-content:space-between;gap:12px;padding:7px 10px;border-bottom:1px solid #edf0f2;font-size:11px}.member-list .path-cell{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+@media(max-width:1100px){.recommendation-list{grid-template-columns:1fr}}
 .app-main{min-width:0}
 .app-header{height:68px;background:#fff;border-bottom:1px solid #e2e7eb;display:flex;align-items:center;justify-content:space-between;gap:18px;padding:0 clamp(22px,3vw,52px)}
 .header-scope,.header-state{display:flex;align-items:center;gap:10px;white-space:nowrap;font-size:12px;color:#71808c}
