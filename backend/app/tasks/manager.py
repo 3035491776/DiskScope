@@ -10,7 +10,7 @@ from pathlib import Path
 from app.scanner.enumerator import RootUnavailable
 from app.scanner.models import ScanResult
 from app.scanner.metrics import ScanResourceMonitor
-from app.scanner.path_guard import validate_scan_root
+from app.scanner.scope_registry import resolve_scan_scope
 from app.scanner.policy import SCAN_POLICY
 from app.scanner.service import scan_fixture
 from app.snapshots.store import SnapshotStore, SnapshotStoreError, snapshot_store
@@ -42,6 +42,9 @@ class ScanTask:
     scan_id: str
     root: str
     root_path: Path = field(repr=False)
+    scope_key: str = ""
+    scope_label: str = ""
+    policy_mode: str = "standard"
     state: str = "queued"
     phase: str = "queued"
     created_at: str = field(default_factory=utc_now)
@@ -70,6 +73,9 @@ class ScanTask:
         return {
             "scan_id": self.scan_id,
             "root": self.root,
+            "scope_key": self.scope_key,
+            "scope_label": self.scope_label,
+            "policy_mode": self.policy_mode,
             "state": self.state,
             "phase": self.phase,
             "created_at": self.created_at,
@@ -81,6 +87,14 @@ class ScanTask:
             "logical_bytes": self.logical_bytes,
             "skipped_count": self.skipped_count,
             "errors_count": self.errors_count,
+            "coverage": "limited" if self.skipped_count or self.errors_count else "complete",
+            "coverage_summary": {
+                "access_denied_count": self.result.errors.get("ACCESS_DENIED", {}).get("count", 0) if self.result else 0,
+                "reparse_skipped_count": self.result.errors.get("REPARSE_POINT_SKIPPED", {}).get("count", 0) if self.result else 0,
+                "file_not_found_count": self.result.errors.get("FILE_NOT_FOUND", {}).get("count", 0) if self.result else 0,
+                "path_too_long_count": self.result.errors.get("PATH_TOO_LONG", {}).get("count", 0) if self.result else 0,
+                "other_io_error_count": self.result.errors.get("IO_ERROR", {}).get("count", 0) if self.result else 0,
+            },
             "errors": self.result.errors if self.result else {},
             "exclusions": self.result.exclusions if self.result else {},
             "metrics": self.metrics,
@@ -99,12 +113,18 @@ class ScanTaskManager:
         self._tasks: OrderedDict[str, ScanTask] = OrderedDict()
         self._snapshot_store = snapshot_store
 
-    def create(self, requested_root: str) -> dict[str, object]:
-        root_path, root_label = validate_scan_root(requested_root)
+    def create(
+        self, requested_root: str | None = None, scope_key: str | None = None,
+        confirmed_readonly: bool = False,
+    ) -> dict[str, object]:
+        scope = resolve_scan_scope(requested_root, scope_key, confirmed_readonly)
         with self._lock:
             if sum(task.state in ACTIVE_STATES for task in self._tasks.values()) >= SCAN_POLICY.max_active_scans:
                 raise ScanAlreadyRunning("A scan is already active.")
-            task = ScanTask(scan_id=str(uuid.uuid4()), root=root_label, root_path=root_path)
+            task = ScanTask(
+                scan_id=str(uuid.uuid4()), root=scope.result_root_label, root_path=scope.root,
+                scope_key=scope.scope_key, scope_label=scope.label, policy_mode=scope.policy.mode,
+            )
             self._tasks[task.scan_id] = task
             self._prune_finished()
             threading.Thread(
@@ -142,7 +162,10 @@ class ScanTaskManager:
                 task.errors_count = result.errors_count
 
         try:
-            result = scan_fixture(task.root_path, task.cancel_event, update_progress)
+            if task.scope_key == "system_drive_c":
+                result = scan_fixture(task.root_path, task.cancel_event, update_progress, scope_key=task.scope_key)
+            else:
+                result = scan_fixture(task.root_path, task.cancel_event, update_progress)
             with self._lock:
                 task.result = result
                 task.finished_at = utc_now()
@@ -207,6 +230,12 @@ class ScanTaskManager:
     def status(self, scan_id: str) -> dict[str, object]:
         with self._lock:
             return self._find(scan_id).public_status()
+
+    def latest_status(self) -> dict[str, object] | None:
+        with self._lock:
+            if not self._tasks:
+                return None
+            return self._tasks[next(reversed(self._tasks))].public_status()
 
     def cancel(self, scan_id: str) -> dict[str, object]:
         with self._lock:

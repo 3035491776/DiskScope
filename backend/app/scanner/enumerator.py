@@ -44,7 +44,7 @@ class RootUnavailable(OSError):
     pass
 
 
-def enumerate_metadata(root: Path, cancel: Event) -> Iterator[ScanEvent]:
+def enumerate_metadata(root: Path, cancel: Event, scope_key: str | None = None) -> Iterator[ScanEvent]:
     """Stream metadata events; retain only pending directory paths."""
     pending: list[tuple[Path, str, str | None]] = [(root, "", None)]
     while pending:
@@ -55,11 +55,12 @@ def enumerate_metadata(root: Path, cancel: Event) -> Iterator[ScanEvent]:
             yield ScanProblem("CROSS_VOLUME_SKIPPED", relative_path)
             continue
         try:
-            assert_safe_directory(root, path)
+            assert_safe_directory(root, path, scope_key)
         except InvalidScanRoot as exc:
             if not relative_path:
                 raise RootUnavailable("The scan root became unavailable.") from exc
-            yield ScanProblem("INVALID_PATH", relative_path)
+            cause = exc.__cause__
+            yield ScanProblem(classify_os_error(cause) if isinstance(cause, OSError) else "INVALID_PATH", relative_path)
             continue
 
         yield DirectorySeen(relative_path, parent)

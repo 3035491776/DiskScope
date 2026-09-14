@@ -23,7 +23,7 @@ const reasonNames: Record<string, string> = {
   <section class="panel scan-entry"><div class="panel-heading"><div><p class="eyebrow">CONTROL</p><h2>固定范围扫描</h2></div></div><ScanControls /></section>
   <EmptyState v-if="!store.scan" title="还没有扫描任务" description="选择 Fixture Sample 或 Project Workspace 并开始扫描；不会自动扫描磁盘。" />
   <template v-else>
-    <section class="panel status-detail"><div class="panel-heading"><div><p class="eyebrow">CURRENT TASK</p><h2>{{ targetName(store.resultTarget) }}</h2></div><span class="status-pill" :class="store.scan.state">{{ completionLabel(store.scan) }}</span></div><ScanProgress :scan="store.scan" />
+    <section class="panel status-detail"><div class="panel-heading"><div><p class="eyebrow">CURRENT TASK</p><h2>{{ targetName(store.resultTarget) }}</h2></div><span class="status-pill" :class="store.scan.state">{{ completionLabel(store.scan) }}</span></div><p v-if="store.resultTarget === 'c_drive'" class="inline-note">Low-Impact Scan · Metadata Only · 单扫描任务。只读分析可随时取消，不显示未知总量的百分比进度。</p><ScanProgress :scan="store.scan" />
       <div class="detail-grid"><div><span>创建时间</span><strong>{{ formatLocalTime(store.scan.created_at) }}</strong></div><div><span>开始时间</span><strong>{{ formatLocalTime(store.scan.started_at) }}</strong></div><div><span>结束时间</span><strong>{{ formatLocalTime(store.scan.finished_at) }}</strong></div><div><span>任务编号</span><strong class="mono">{{ store.scan.scan_id }}</strong></div></div>
       <p v-if="store.scan.state === 'failed'" class="inline-error" role="alert">扫描失败：{{ store.scan.error_message || store.scan.error_code || '原因未知' }}</p>
       <p v-else-if="store.scan.state === 'cancelled'" class="inline-note">任务已取消；以下统计可能不完整。</p>
@@ -35,6 +35,8 @@ const reasonNames: Record<string, string> = {
       <section class="panel"><div class="panel-heading"><div><p class="eyebrow">COVERAGE</p><h2>错误与跳过</h2></div><span class="subtle-label">错误 {{ formatNumber(store.scan.errors_count) }} · 跳过 {{ formatNumber(store.scan.skipped_count) }}</span></div>
         <div v-if="Object.keys(store.scan.errors).length" class="reason-list"><div v-for="(item, code) in store.scan.errors" :key="code"><strong>{{ reasonNames[code] || code }}</strong><span>{{ code }} · {{ item.count }}</span></div></div>
         <p v-else class="inline-note">{{ store.scan.errors_count === 0 ? '未记录读取错误。' : '正在收集错误摘要…' }}</p>
+        <div v-if="store.resultTarget === 'c_drive'" class="detail-grid"><div><span>访问受限</span><strong>{{ store.scan.coverage_summary.access_denied_count }}</strong></div><div><span>链接/挂载点跳过</span><strong>{{ store.scan.coverage_summary.reparse_skipped_count }}</strong></div><div><span>扫描中消失</span><strong>{{ store.scan.coverage_summary.file_not_found_count }}</strong></div><div><span>路径过长</span><strong>{{ store.scan.coverage_summary.path_too_long_count }}</strong></div><div><span>其他 I/O 错误</span><strong>{{ store.scan.coverage_summary.other_io_error_count }}</strong></div></div>
+        <p v-if="store.resultTarget === 'c_drive'" class="fine-print">ACCESS_DENIED 表示 Windows 权限保护，DiskScope 不尝试绕过。REPARSE_POINT_SKIPPED 表示为避免重复或跨卷访问，链接与挂载点未跟随。</p>
         <div v-if="Object.keys(store.scan.exclusions).length" class="exclusion-list"><strong>安全排除</strong><span v-for="(item, rule) in store.scan.exclusions" :key="rule">{{ rule }} · {{ item.count }}</span></div>
       </section>
       <section class="panel"><div class="panel-heading"><div><p class="eyebrow">PROCESS METRICS</p><h2>扫描资源</h2></div><span class="subtle-label">进程范围 · 开发指标</span></div>

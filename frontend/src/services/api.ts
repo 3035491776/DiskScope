@@ -33,6 +33,9 @@ export async function getHealth(): Promise<HealthResponse> {
 export interface ScanStatus {
   scan_id: string
   root: string
+  scope_key: string
+  scope_label: string
+  policy_mode: 'standard' | 'c_drive_safe_readonly'
   state: 'queued' | 'running' | 'cancelling' | 'cancelled' | 'completed' | 'failed'
   phase: string
   created_at: string
@@ -44,6 +47,14 @@ export interface ScanStatus {
   logical_bytes: number
   skipped_count: number
   errors_count: number
+  coverage: 'complete' | 'limited'
+  coverage_summary: {
+    access_denied_count: number
+    reparse_skipped_count: number
+    file_not_found_count: number
+    path_too_long_count: number
+    other_io_error_count: number
+  }
   errors: Record<string, { count: number; samples: string[] }>
   exclusions: Record<string, { count: number; samples: string[] }>
   metrics: ScanMetrics | null
@@ -127,6 +138,9 @@ export interface FileItem {
   size_bytes: number
   mtime: string
   attributes: number | null
+  system_category?: string
+  risk_class?: string
+  category_label?: string
 }
 
 export interface DirectoryItem {
@@ -140,6 +154,9 @@ export interface DirectoryItem {
   file_count: number
   children_count: number
   coverage: 'complete' | 'limited'
+  system_category?: string
+  risk_class?: string
+  category_label?: string
 }
 
 export interface VolumeItem {
@@ -147,7 +164,7 @@ export interface VolumeItem {
   total_bytes: number
   used_bytes: number
   free_bytes: number
-  scan_allowed: false
+  scan_allowed: boolean
 }
 
 async function apiJson<T>(url: string, init?: RequestInit): Promise<T> {
@@ -183,21 +200,26 @@ export async function establishSession(): Promise<boolean> {
   return state.ready
 }
 
-export type ScanTarget = 'fixture' | 'project'
+export type ScanTarget = 'fixture' | 'project' | 'c_drive'
 export const PROJECT_WORKSPACE_PATH = 'D:\\Artilius\\Codex\\Windows-C-clear'
 
 export function createScan(target: ScanTarget = 'fixture'): Promise<{ scan_id: string; state: string }> {
   return apiJson('/api/v1/scans', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      root: target === 'project' ? PROJECT_WORKSPACE_PATH : 'tests/fixtures/sample_disk',
-    }),
+    body: JSON.stringify(target === 'c_drive'
+      ? { scope_key: 'system_drive_c', confirmed_readonly: true }
+      : { root: target === 'project' ? PROJECT_WORKSPACE_PATH : 'tests/fixtures/sample_disk' }),
   })
 }
 
 export function getScan(scanId: string): Promise<ScanStatus> {
   return apiJson(`/api/v1/scans/${encodeURIComponent(scanId)}`)
+}
+
+export async function getCurrentScan(): Promise<ScanStatus | null> {
+  const result = await apiJson<{ scan: ScanStatus | null }>('/api/v1/scans/current')
+  return result.scan
 }
 
 export function cancelScan(scanId: string): Promise<ScanStatus> {

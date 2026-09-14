@@ -1,7 +1,7 @@
 import type { ScanStatus, ScanTarget } from '../services/api'
 
 export function targetName(target: ScanTarget): string {
-  return target === 'project' ? 'Project Workspace' : 'Fixture Sample'
+  return target === 'c_drive' ? 'Windows C:' : target === 'project' ? 'Project Workspace' : 'Fixture Sample'
 }
 
 export function stateLabel(state: ScanStatus['state']): string {

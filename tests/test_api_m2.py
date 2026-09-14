@@ -42,11 +42,11 @@ class M2ApiTests(unittest.TestCase):
             time.sleep(0.01)
         self.fail("Fixture scan timed out")
 
-    def test_volume_capacity_is_integer_bytes_and_never_scan_enabled(self) -> None:
+    def test_volume_capacity_is_integer_bytes_and_only_c_has_opt_in_scan(self) -> None:
         expected = capacity_record("C:", 1000, 250)
         self.assertEqual(expected, {
             "drive": "C:", "total_bytes": 1000, "used_bytes": 750,
-            "free_bytes": 250, "scan_allowed": False,
+            "free_bytes": 250, "scan_allowed": True,
         })
         with patch("app.api.volumes.list_fixed_volumes", return_value=[expected]):
             status, _, payload = self.call("GET", "/api/v1/volumes")

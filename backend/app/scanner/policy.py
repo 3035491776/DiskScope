@@ -3,7 +3,7 @@ from dataclasses import dataclass
 
 @dataclass(frozen=True)
 class ScanPolicy:
-    """M1.6 invariants. Only standard mode is implemented."""
+    """One-worker metadata-only invariants shared by approved scope modes."""
 
     mode: str = "standard"
     max_active_scans: int = 1
@@ -15,7 +15,7 @@ class ScanPolicy:
 
     def __post_init__(self) -> None:
         if (
-            self.mode != "standard"
+            self.mode not in {"standard", "c_drive_safe_readonly"}
             or self.max_active_scans != 1
             or self.concurrency != 1
             or self.follow_reparse_points
@@ -23,7 +23,8 @@ class ScanPolicy:
             or self.read_file_contents
             or self.hash_files
         ):
-            raise ValueError("M1.6 supports only the single-worker metadata-only standard policy")
+            raise ValueError("Only single-worker metadata-only scan policies are supported")
 
 
 SCAN_POLICY = ScanPolicy()
+C_DRIVE_SAFE_READONLY = ScanPolicy(mode="c_drive_safe_readonly")

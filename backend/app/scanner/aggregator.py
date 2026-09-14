@@ -21,7 +21,8 @@ class DirectoryAggregator:
 
     def finish(self) -> dict[str, DirectoryStats]:
         # Discovery inserts each parent before its children.
-        for directory in reversed(list(self.directories.values())):
+        for path in reversed(self.directories):
+            directory = self.directories[path]
             if directory.parent is not None:
                 parent = self.directories[directory.parent]
                 parent.subtree_bytes += directory.subtree_bytes

@@ -4,13 +4,13 @@ import os
 
 
 def capacity_record(drive: str, total_bytes: int, free_bytes: int) -> dict[str, int | str | bool]:
-    """Keep API capacities as integer bytes; never imply scan permission."""
+    """Keep capacity separate from scanning; only fixed C has an opt-in policy."""
     return {
         "drive": drive,
         "total_bytes": total_bytes,
         "used_bytes": total_bytes - free_bytes,
         "free_bytes": free_bytes,
-        "scan_allowed": False,
+        "scan_allowed": drive.casefold() == "c:",
     }
 
 

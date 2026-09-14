@@ -19,7 +19,7 @@ const error = ref('')
 const compareError = ref('')
 let loadSequence = 0
 let compareSequence = 0
-const scopeKey = computed(() => store.selectedTarget === 'project' ? 'project_workspace' : 'fixture_sample')
+const scopeKey = computed(() => store.selectedTarget === 'c_drive' ? 'system_drive_c' : store.selectedTarget === 'project' ? 'project_workspace' : 'fixture_sample')
 
 async function loadHistory() {
   const sequence = ++loadSequence
@@ -82,7 +82,7 @@ const hasFileChanges = computed(() => fileGroups.value.some(group => group.items
 <template>
   <div class="page-heading"><div><p class="eyebrow">HISTORY / CHANGE</p><h1>历史与变化</h1><p class="page-description">比较同一固定范围的两次扫描，查看空间增长与 Top 大文件变化。</p></div><span class="read-only-chip">只读历史</span></div>
   <section class="panel"><div class="panel-heading"><div><p class="eyebrow">SCAN SCOPE</p><h2>当前扫描范围 · {{ targetName(store.selectedTarget) }}</h2></div><button type="button" class="text-button" @click="loadHistory">刷新历史</button></div>
-    <div class="scan-controls"><label for="history-scope">查看范围</label><select id="history-scope" v-model="store.selectedTarget"><option value="fixture">Fixture Sample</option><option value="project">Project Workspace</option></select></div>
+    <div class="scan-controls"><label for="history-scope">查看范围</label><select id="history-scope" v-model="store.selectedTarget"><option value="fixture">Fixture Sample</option><option value="project">Project Workspace</option><option value="c_drive">Windows C:</option></select></div>
     <p class="inline-note">只显示该范围的历史；无法跨范围组合比较。</p>
   </section>
   <p v-if="error" class="panel inline-error history-message" role="alert">{{ error }}</p>
@@ -101,7 +101,7 @@ const hasFileChanges = computed(() => fileGroups.value.some(group => group.items
       <p v-if="compareError" class="panel inline-error history-message" role="alert">{{ compareError }}</p>
       <p v-else-if="comparing" class="panel inline-note">正在比较…</p>
       <template v-else-if="comparison">
-        <p v-if="coverageWarning(comparison.comparison_coverage_limited)" class="coverage-note history-coverage">{{ coverageWarning(comparison.comparison_coverage_limited) }}</p>
+        <p v-if="coverageWarning(comparison.comparison_coverage_limited)" class="coverage-note history-coverage">{{ coverageWarning(comparison.comparison_coverage_limited) }}<span v-if="scopeKey === 'system_drive_c'"> 两次 C 盘扫描也可能因权限或瞬时文件变化而存在自然波动。</span></p>
         <div class="history-summary"><div class="metric-card"><span>空间变化</span><strong>{{ formatDeltaBytes(comparison.total_bytes_delta) }}</strong><small>{{ formatDeltaPercent(comparison.total_bytes_delta_ratio) }}</small></div><div class="metric-card"><span>文件数量变化</span><strong>{{ comparison.file_count_delta > 0 ? '+' : '' }}{{ formatNumber(comparison.file_count_delta) }}</strong><small>{{ comparison.file_count_delta > 0 ? '增加' : comparison.file_count_delta < 0 ? '减少' : '无变化' }}</small></div><div class="metric-card"><span>目录数量变化</span><strong>{{ comparison.directory_count_delta > 0 ? '+' : '' }}{{ formatNumber(comparison.directory_count_delta) }}</strong><small>{{ comparison.directory_count_delta > 0 ? '增加' : comparison.directory_count_delta < 0 ? '减少' : '无变化' }}</small></div></div>
         <div class="two-column">
           <section class="panel table-panel"><div class="panel-heading"><div><p class="eyebrow">BY SPACE</p><h2>增长空间最多</h2></div><span class="subtle-label">按增加字节排序</span></div><p v-if="comparison.growth_by_bytes.length === 0" class="inline-note">没有目录空间增长。</p><div v-else class="table-scroll"><table><thead><tr><th>目录</th><th>变化</th><th>新增空间</th></tr></thead><tbody><tr v-for="item in comparison.growth_by_bytes" :key="item.relative_path"><td class="path-cell" :title="item.relative_path">{{ item.relative_path }}</td><td>{{ changeLabel(item) }}</td><td class="strong-cell">{{ formatDeltaBytes(item.delta_bytes) }}</td></tr></tbody></table></div></section>

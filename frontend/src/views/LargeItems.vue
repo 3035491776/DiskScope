@@ -38,6 +38,7 @@ watch([() => store.scan?.scan_id, () => store.scan?.state], async ([id, state]) 
 }, { immediate: true })
 
 function absolutePath(relativePath: string): string {
+  if (store.resultTarget === 'c_drive') return `C:\\${relativePath.replaceAll('/', '\\')}`
   const root = store.resultTarget === 'project'
     ? PROJECT_WORKSPACE_PATH
     : `${PROJECT_WORKSPACE_PATH}\\tests\\fixtures\\sample_disk`
@@ -63,11 +64,11 @@ async function copyPath(relativePath: string) {
     <p v-if="loading" class="inline-note">正在读取 Top 项目…</p>
     <template v-else-if="tab === 'files'">
       <EmptyState v-if="!sortedFiles.length" title="没有可显示的大文件" description="此扫描范围内没有文件，或扫描未覆盖到文件。" />
-      <div v-else class="table-scroll"><table><thead><tr><th>名称</th><th>相对路径</th><th>大小</th><th>修改时间</th><th>所属目录</th><th>操作</th></tr></thead><tbody><tr v-for="file in sortedFiles" :key="file.relative_path"><td class="strong-cell">{{ file.name }}</td><td class="path-cell">{{ file.relative_path }}</td><td>{{ formatBytes(file.size_bytes) }}</td><td>{{ formatLocalTime(file.mtime) }}</td><td>{{ file.parent || '扫描根' }}</td><td><button class="table-action" type="button" :aria-label="`复制 ${file.name} 的路径`" @click="copyPath(file.relative_path)">复制路径</button></td></tr></tbody></table></div>
+      <div v-else class="table-scroll"><table><thead><tr><th>名称</th><th>相对路径</th><th>大小</th><th v-if="store.resultTarget === 'c_drive'">类型</th><th>修改时间</th><th>所属目录</th><th>操作</th></tr></thead><tbody><tr v-for="file in sortedFiles" :key="file.relative_path"><td class="strong-cell">{{ file.name }}</td><td class="path-cell">{{ file.relative_path }}</td><td>{{ formatBytes(file.size_bytes) }}</td><td v-if="store.resultTarget === 'c_drive'">{{ file.category_label || '其他' }}</td><td>{{ formatLocalTime(file.mtime) }}</td><td>{{ file.parent || '扫描根' }}</td><td><button class="table-action" type="button" :aria-label="`复制 ${file.name} 的路径`" @click="copyPath(file.relative_path)">复制路径</button></td></tr></tbody></table></div>
     </template>
     <template v-else>
       <EmptyState v-if="!sortedDirectories.length" title="没有可显示的大目录" description="此扫描范围内没有子目录。" />
-      <div v-else class="table-scroll"><table><thead><tr><th>目录</th><th>相对路径</th><th>逻辑大小</th><th>文件</th><th>子目录</th><th>覆盖</th></tr></thead><tbody><tr v-for="directory in sortedDirectories" :key="directory.node_id"><td class="strong-cell">{{ directory.name }}</td><td class="path-cell">{{ directory.relative_path }}</td><td>{{ formatBytes(directory.subtree_bytes) }}</td><td>{{ formatNumber(directory.file_count) }}</td><td>{{ formatNumber(directory.children_count) }}</td><td>{{ directory.coverage === 'complete' ? '完整' : '受限' }}</td></tr></tbody></table></div>
+      <div v-else class="table-scroll"><table><thead><tr><th>目录</th><th>相对路径</th><th>逻辑大小</th><th v-if="store.resultTarget === 'c_drive'">类型</th><th>文件</th><th>子目录</th><th>覆盖</th></tr></thead><tbody><tr v-for="directory in sortedDirectories" :key="directory.node_id"><td class="strong-cell">{{ directory.name }}</td><td class="path-cell">{{ directory.relative_path }}</td><td>{{ formatBytes(directory.subtree_bytes) }}</td><td v-if="store.resultTarget === 'c_drive'">{{ directory.category_label || '其他目录' }}</td><td>{{ formatNumber(directory.file_count) }}</td><td>{{ formatNumber(directory.children_count) }}</td><td>{{ directory.coverage === 'complete' ? '完整' : '受限' }}</td></tr></tbody></table></div>
     </template>
   </section>
 </template>

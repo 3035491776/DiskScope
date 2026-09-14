@@ -37,6 +37,8 @@ class SnapshotScopeMismatch(ValueError):
 
 
 def scope_for_root(root_label: str) -> tuple[str, str]:
+    if root_label == "system_drive_c":
+        return "system_drive_c", "Windows C:"
     if root_label == "project_workspace":
         return "project_workspace", "Project Workspace"
     if root_label == "tests/fixtures/sample_disk":

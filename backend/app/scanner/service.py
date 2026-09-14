@@ -18,6 +18,7 @@ def scan_fixture(
     cancel: Event,
     on_progress: ProgressCallback | None = None,
     top_k: int = 1000,
+    scope_key: str | None = None,
 ) -> ScanResult:
     """Read approved-root metadata without opening or changing scanned files."""
     from app.scanner.topk import TopKFiles
@@ -35,7 +36,7 @@ def scan_fixture(
                 break
             parent = parent.rpartition("/")[0]
 
-    for event in enumerate_metadata(root, cancel):
+    for event in enumerate_metadata(root, cancel, scope_key):
         if isinstance(event, DirectorySeen):
             aggregator.add_directory(event.relative_path, event.parent)
             result.dirs_seen += 1

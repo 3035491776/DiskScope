@@ -62,6 +62,7 @@ watch([() => store.scan?.scan_id, () => store.scan?.state], ([id, state]) => {
   <div class="page-heading"><div><p class="eyebrow">EXPLORE / DIRECTORY</p><h1>空间分析</h1><p class="page-description">每次只读取当前层级；数字、图表和目录表对应同一份扫描结果。</p></div></div>
   <EmptyState v-if="!store.scan || !['completed', 'cancelled'].includes(store.scan.state)" title="需要完成一次扫描" description="前往总览选择固定范围。扫描完成后，可逐层查看目录占用。" />
   <template v-else>
+    <p v-if="store.resultTarget === 'c_drive'" class="coverage-note">C: 结果是扫描可见的文件逻辑大小，不等于磁盘已用空间；受保护目录可能覆盖受限。</p>
     <section class="panel analysis-head">
       <nav class="breadcrumbs" aria-label="目录路径"><template v-for="(crumb, index) in crumbs" :key="crumb.id"><span v-if="index" class="breadcrumb-divider">›</span><button type="button" :aria-current="index === crumbs.length - 1 ? 'page' : undefined" @click="navigateTo(index)">{{ crumb.name }}</button></template></nav>
       <div class="analysis-current"><div><p class="eyebrow">当前目录逻辑大小</p><strong>{{ formatBytes(currentSize) }}</strong></div><span>{{ children.length }} 个直接子目录</span></div>
@@ -72,7 +73,7 @@ watch([() => store.scan?.scan_id, () => store.scan?.state], ([id, state]) => {
     <template v-else-if="children.length">
       <section class="panel chart-panel"><div class="panel-heading"><div><p class="eyebrow">CURRENT LEVEL</p><h2>子目录占比</h2></div><span class="subtle-label">最多显示前 20 项，其余合并</span></div><SpaceBreakdownChart :items="children" :total-bytes="currentSize" /></section>
       <section class="panel table-panel"><div class="panel-heading"><div><p class="eyebrow">DIRECTORIES</p><h2>当前层级目录</h2></div><span class="subtle-label">点击目录继续下钻</span></div>
-        <div class="table-scroll"><table><thead><tr><th>目录</th><th>逻辑大小</th><th>占比</th><th>文件</th><th>子目录</th><th>覆盖</th></tr></thead><tbody><tr v-for="item in children" :key="item.node_id"><td><button class="directory-link" type="button" @click="openDirectory(item)">{{ item.name }} <span aria-hidden="true">›</span></button></td><td>{{ formatBytes(item.subtree_bytes) }}</td><td>{{ currentSize > 0 ? (item.subtree_bytes / currentSize * 100).toFixed(1) + '%' : '未知' }}</td><td>{{ formatNumber(item.file_count) }}</td><td>{{ formatNumber(item.children_count) }}</td><td>{{ item.coverage === 'complete' ? '完整' : '受限' }}</td></tr></tbody></table></div>
+        <div class="table-scroll"><table><thead><tr><th>目录</th><th>逻辑大小</th><th>占比</th><th v-if="store.resultTarget === 'c_drive'">类型</th><th>文件</th><th>子目录</th><th>覆盖</th></tr></thead><tbody><tr v-for="item in children" :key="item.node_id"><td><button class="directory-link" type="button" @click="openDirectory(item)">{{ item.name }} <span aria-hidden="true">›</span></button></td><td>{{ formatBytes(item.subtree_bytes) }}</td><td>{{ currentSize > 0 ? (item.subtree_bytes / currentSize * 100).toFixed(1) + '%' : '未知' }}</td><td v-if="store.resultTarget === 'c_drive'">{{ item.category_label || '其他目录' }}</td><td>{{ formatNumber(item.file_count) }}</td><td>{{ formatNumber(item.children_count) }}</td><td>{{ item.coverage === 'complete' ? '完整' : '受限' }}</td></tr></tbody></table></div>
       </section>
     </template>
     <EmptyState v-else title="此层没有子目录" description="空目录或只有直接文件时，大小仍计入当前目录；可通过面包屑返回上一级。" />
