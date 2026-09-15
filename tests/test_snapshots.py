@@ -51,7 +51,7 @@ class SnapshotStoreTests(unittest.TestCase):
     def test_schema_and_complete_metadata_without_file_contents(self):
         snapshot_id = self.save("one")
         with closing(sqlite3.connect(self.database)) as connection:
-            self.assertEqual(connection.execute("PRAGMA user_version").fetchone()[0], 2)
+            self.assertEqual(connection.execute("PRAGMA user_version").fetchone()[0], 3)
             self.assertEqual(connection.execute("SELECT COUNT(*) FROM directory_snapshots").fetchone()[0], 2)
             self.assertEqual(connection.execute("SELECT COUNT(*) FROM file_snapshots").fetchone()[0], 1)
             self.assertEqual(connection.execute("SELECT scope_key FROM scan_snapshots").fetchone()[0], "project_workspace")
@@ -110,7 +110,7 @@ class SnapshotStoreTests(unittest.TestCase):
 
     def test_version_and_corruption_are_unavailable_without_rebuild(self):
         with closing(sqlite3.connect(self.database)) as connection:
-            connection.execute("PRAGMA user_version = 3")
+            connection.execute("PRAGMA user_version = 4")
         with self.assertRaises(SnapshotStoreError) as caught:
             self.store.list()
         self.assertEqual(caught.exception.code, "SNAPSHOT_DATABASE_VERSION_UNSUPPORTED")

@@ -1,11 +1,11 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import EmptyState from '../components/EmptyState.vue'
-import { analyzeSnapshot, getCandidateDetail, getCandidates } from '../services/api'
-import type { CandidateRun, CandidateSummary, CleanupCandidate, SnapshotSummary } from '../services/api'
+import { analyzeSnapshot, getCandidateDetail, getCandidates, getCleanupExecutions, prepareCleanup } from '../services/api'
+import type { CandidateRun, CandidateSummary, CleanupCandidate, CleanupExecution, PreparedCleanup, SnapshotSummary } from '../services/api'
 import { useScanStore } from '../stores/scan'
 import { formatBytes, formatLocalTime, formatNumber, formatSeconds } from '../utils/format'
-import { actionLabel, categoryLabel, confidenceLabel, coverageMessage, riskLabel, topKMessage } from '../utils/recommendations'
+import { actionLabel, categoryLabel, confidenceLabel, coverageMessage, executionReasonLabel, executionStatus, riskLabel, topKMessage } from '../utils/recommendations'
 
 const store = useScanStore()
 const latestSnapshot = ref<SnapshotSummary | null>(null)
@@ -21,6 +21,9 @@ const analyzing = ref(false)
 const detailLoading = ref(false)
 const error = ref('')
 const detailError = ref('')
+const prepared = ref<PreparedCleanup | null>(null)
+const prepareLoading = ref(false)
+const executionHistory = ref<CleanupExecution[]>([])
 let requestNumber = 0
 
 const categories = computed(() => Object.keys(summary.value?.by_category ?? {}).sort())
@@ -68,6 +71,7 @@ async function loadRecommendations(autoAnalyze = true) {
 
 async function openDetail(item: CleanupCandidate) {
   selected.value = null
+  prepared.value = null
   members.value = []
   detailError.value = ''
   detailLoading.value = true
@@ -87,13 +91,32 @@ async function copyPath(path: string) {
   catch { detailError.value = '无法复制路径，请检查浏览器剪贴板权限。' }
 }
 
+async function prepareSelected() {
+  if (!selected.value || selected.value.execution_hint !== 'prepare_available') return
+  prepareLoading.value = true
+  detailError.value = ''
+  try {
+    prepared.value = await prepareCleanup(selected.value.candidate_id)
+    selected.value = null
+    await loadExecutionHistory()
+  }
+  catch (cause) { detailError.value = cause instanceof Error ? cause.message : '当前状态检查失败' }
+  finally { prepareLoading.value = false }
+}
+
+async function loadExecutionHistory() {
+  try { executionHistory.value = await getCleanupExecutions() }
+  catch { executionHistory.value = [] }
+}
+
 watch(() => store.sessionReady, ready => { if (ready) void loadRecommendations() }, { immediate: true })
+watch(() => store.sessionReady, ready => { if (ready) void loadExecutionHistory() }, { immediate: true })
 watch([category, confidence], () => { if (store.sessionReady) void loadRecommendations(false) })
 </script>
 
 <template>
-  <div class="page-heading"><div><p class="eyebrow">RECOMMENDATIONS / SAVED SNAPSHOT</p><h1>空间建议</h1><p class="page-description">解释哪些项目值得关注，以及识别依据与处理风险。</p></div><span class="read-only-chip">仅分析 · 不执行清理</span></div>
-  <p class="coverage-note">当前仅提供分析与建议，不会自动删除文件。低风险也不等于保证安全。</p>
+  <div class="page-heading"><div><p class="eyebrow">RECOMMENDATIONS / SAVED SNAPSHOT</p><h1>空间建议</h1><p class="page-description">解释哪些项目值得关注，以及识别依据与处理风险。</p></div><span class="read-only-chip">执行门禁 · 真实处理未开放</span></div>
+  <p class="coverage-note">历史快照不是处理授权。准备处理会重新检查当前文件；本版仅提供预检，不会移动或删除文件。</p>
   <section class="panel"><div class="panel-heading"><div><p class="eyebrow">SOURCE</p><h2>Windows C: · 基于已保存扫描结果</h2></div><button type="button" class="text-button" :disabled="loading || !latestSnapshot" @click="loadRecommendations(true)">重新分析已保存快照</button></div>
     <p v-if="!store.sessionReady" class="inline-note">请从 start.bat 打开本地页面，以查看已保存的扫描结果。</p>
     <template v-else><div class="recommendation-meta"><span>扫描时间：{{ formatLocalTime(latestSnapshot?.completed_at) }}</span><span>规则版本：{{ run?.rule_version ?? 'rules-v1.0.0' }}</span><span>分析范围：大文件 Top-K + 目录聚合</span><span v-if="run">分析耗时：{{ formatSeconds(run.duration_ms) }}</span></div>
@@ -111,10 +134,28 @@ watch([category, confidence], () => { if (store.sessionReady) void loadRecommend
     <section class="panel recommendation-filters"><div class="panel-heading"><div><p class="eyebrow">FILTER</p><h2>筛选识别结果</h2></div></div><div class="scan-controls"><label>类型<select v-model="category"><option value="">全部类型</option><option v-for="item in categories" :key="item" :value="item">{{ categoryLabel(item) }}</option></select></label><label>识别置信度<select v-model="confidence"><option value="">全部置信度</option><option value="high">高</option><option value="medium">中</option><option value="low">低</option></select></label></div></section>
     <section v-for="section in sections" :key="section.risk" class="panel recommendation-section"><div class="panel-heading"><div><p class="eyebrow">{{ section.risk.toUpperCase() }}</p><h2>{{ sectionTitles[section.risk] }}</h2></div><span class="subtle-label">{{ section.total }} 项<span v-if="section.total > section.items.length"> · 显示前 {{ section.items.length }} 项</span></span></div>
       <p v-if="!section.items.length" class="inline-note">此范围暂无匹配项目。</p>
-    <div v-else class="recommendation-list"><article v-for="item in section.items" :key="item.candidate_id" class="recommendation-item"><div class="recommendation-item-head"><div><strong>{{ item.title }}</strong><p class="path-cell" :title="item.display_path">{{ item.display_path }}</p></div><strong class="size-cell">{{ formatBytes(item.logical_bytes) }}</strong></div><p>{{ item.summary }}</p><div class="recommendation-tags"><span>{{ categoryLabel(item.category) }}</span><span>{{ riskLabel(item.risk_level) }}</span><span>置信度 {{ confidenceLabel(item.confidence) }}</span><span>{{ item.object_type === 'group' ? '分组' : item.object_type === 'directory' ? '目录' : '文件' }}</span></div><button type="button" class="text-button" @click="openDetail(item)">为什么被识别 →</button></article></div>
+    <div v-else class="recommendation-list"><article v-for="item in section.items" :key="item.candidate_id" class="recommendation-item"><div class="recommendation-item-head"><div><strong>{{ item.title }}</strong><p class="path-cell" :title="item.display_path">{{ item.display_path }}</p></div><strong class="size-cell">{{ formatBytes(item.logical_bytes) }}</strong></div><p>{{ item.summary }}</p><div class="recommendation-tags"><span>{{ categoryLabel(item.category) }}</span><span>{{ riskLabel(item.risk_level) }}</span><span>置信度 {{ confidenceLabel(item.confidence) }}</span><span>{{ item.object_type === 'group' ? '分组' : item.object_type === 'directory' ? '目录' : '文件' }}</span></div><p class="execution-status">{{ executionStatus(item) }}</p><button type="button" class="text-button" @click="openDetail(item)">为什么被识别 →</button></article></div>
     </section>
   </template>
   <p v-if="detailLoading" class="inline-note" role="status">正在读取识别依据…</p>
   <p v-if="detailError" class="inline-error" role="alert">{{ detailError }}</p>
-  <div v-if="selected" class="modal-backdrop" @click.self="selected = null"><section class="confirm-dialog recommendation-detail" role="dialog" aria-modal="true" aria-labelledby="recommendation-title"><p class="eyebrow">EVIDENCE / READ ONLY</p><h2 id="recommendation-title">{{ selected.title }}</h2><p>{{ selected.summary }}</p><div class="recommendation-tags"><span>{{ riskLabel(selected.risk_level) }}</span><span>置信度 {{ confidenceLabel(selected.confidence) }}</span><span>{{ categoryLabel(selected.category) }}</span></div><p class="path-cell" :title="selected.display_path">{{ selected.display_path }}</p><strong>{{ formatBytes(selected.logical_bytes) }}</strong><h3>识别依据</h3><ul><li v-for="evidence in selected.evidence" :key="evidence">{{ evidence }}</li></ul><p>{{ selected.explanation }}</p><p><strong>建议：</strong>{{ actionLabel(selected.recommended_action) }} 当前版本不会删除或修改该项目。</p><p class="fine-print">规则：{{ selected.source_rule_id }} · {{ selected.rule_version }} · {{ selected.reason_code }}</p><div v-if="members.length"><h3>分组成员（{{ members.length }}）</h3><div class="member-list"><div v-for="member in members" :key="member.candidate_id"><span class="path-cell" :title="member.display_path">{{ member.display_path }}</span><strong class="size-cell">{{ formatBytes(member.logical_bytes) }}</strong></div></div></div><div class="confirm-actions"><button type="button" class="text-button" @click="copyPath(selected.display_path)">复制路径</button><button type="button" class="primary-button" @click="selected = null">关闭</button></div></section></div>
+  <div v-if="selected" class="modal-backdrop" @click.self="selected = null"><section class="confirm-dialog recommendation-detail" role="dialog" aria-modal="true" aria-labelledby="recommendation-title"><p class="eyebrow">EVIDENCE / READ ONLY</p><h2 id="recommendation-title">{{ selected.title }}</h2><p>{{ selected.summary }}</p><div class="recommendation-tags"><span>{{ riskLabel(selected.risk_level) }}</span><span>置信度 {{ confidenceLabel(selected.confidence) }}</span><span>{{ categoryLabel(selected.category) }}</span></div><p class="path-cell" :title="selected.display_path">{{ selected.display_path }}</p><strong>{{ formatBytes(selected.logical_bytes) }}</strong><h3>识别依据</h3><ul><li v-for="evidence in selected.evidence" :key="evidence">{{ evidence }}</li></ul><p>{{ selected.explanation }}</p><p><strong>建议：</strong>{{ actionLabel(selected.recommended_action) }} 当前版本不会删除或修改该项目。</p><p class="fine-print">规则：{{ selected.source_rule_id }} · {{ selected.rule_version }} · {{ selected.reason_code }}</p><div v-if="members.length"><h3>分组成员（{{ members.length }}）</h3><div class="member-list"><div v-for="member in members" :key="member.candidate_id"><span class="path-cell" :title="member.display_path">{{ member.display_path }}</span><strong class="size-cell">{{ formatBytes(member.logical_bytes) }}</strong></div></div></div><p class="execution-status">{{ selected.execution_hint === 'prepare_available' ? '可准备处理 · 需重新核对当前文件' : executionStatus(selected) }}</p><div class="confirm-actions"><button v-if="selected.execution_hint === 'prepare_available'" type="button" class="primary-button" :disabled="prepareLoading" @click="prepareSelected">{{ prepareLoading ? '正在检查…' : '准备处理' }}</button><button type="button" class="text-button" @click="copyPath(selected.display_path)">复制路径</button><button type="button" class="primary-button" @click="selected = null">关闭</button></div></section></div>
+  <div v-if="prepared" class="modal-backdrop" @click.self="prepared = null">
+    <section class="confirm-dialog recommendation-detail" role="dialog" aria-modal="true" aria-labelledby="preflight-title">
+      <p class="eyebrow">CURRENT FILE / DRY RUN</p><h2 id="preflight-title">当前状态预检</h2>
+      <p class="path-cell" :title="prepared.preflight.current_path">{{ prepared.preflight.current_path }}</p>
+      <p>扫描时：{{ formatBytes(prepared.preflight.snapshot_size) }} · {{ formatLocalTime(prepared.preflight.snapshot_mtime) }}</p>
+      <p>当前：{{ prepared.preflight.current_size === null ? '无法读取' : formatBytes(prepared.preflight.current_size) }} · {{ formatLocalTime(prepared.preflight.current_mtime) }}</p>
+      <p><strong>状态：</strong>{{ prepared.preflight.block_reasons.length ? '该文件已变化或不符合策略，处理已阻止' : '预检通过；真实处理尚未开放' }}</p>
+      <p><strong>计划：</strong>{{ prepared.preflight.planned_action === 'dry_run_only' ? '仅预检，不移动文件' : '无' }}</p>
+      <ul v-if="prepared.preflight.block_reasons.length"><li v-for="reason in prepared.preflight.block_reasons" :key="reason">{{ executionReasonLabel(reason) }}</li></ul>
+      <p class="fine-print">预检不会修改文件。令牌 {{ prepared.expires_at ? `于 ${formatLocalTime(prepared.expires_at)} 过期` : '未签发' }}；本版执行功能关闭。</p>
+      <div class="confirm-actions"><button type="button" class="primary-button" @click="prepared = null">返回建议</button></div>
+    </section>
+  </div>
+  <section class="panel"><div class="panel-heading"><div><p class="eyebrow">AUDIT</p><h2>操作记录</h2></div><button type="button" class="text-button" @click="loadExecutionHistory">刷新</button></div>
+    <p class="inline-note">记录预检与执行门禁结果；“预检通过”不表示文件已移动或释放空间。</p>
+    <p v-if="!executionHistory.length" class="inline-note">暂无操作记录。</p>
+    <div v-else class="recommendation-list"><div v-for="record in executionHistory" :key="record.id" class="recommendation-item"><strong>{{ formatLocalTime(record.prepare_time) }} · {{ record.status }}</strong><p class="path-cell" :title="record.original_path">{{ record.original_path }}</p><p>{{ record.final_result ?? '未执行' }} · {{ record.failure_code ?? '无错误' }}</p></div></div>
+  </section>
 </template>

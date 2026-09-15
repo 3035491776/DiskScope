@@ -1,0 +1,27 @@
+# M6 Cleanup Execution Safety Gate
+
+**Historical metadata is not execution authority.** A saved snapshot or M5 candidate records what a read-only scan saw. Neither authorizes a filesystem change. M6 adds an independent, deny-by-default execution policy, current-metadata preflight, short-lived server-side token, and SQLite audit. **Real cleanup execution remains disabled in this version.** No target is moved, unlinked, or otherwise modified by the M6 endpoints.
+
+## Boundary and policy
+
+The only entry is a persisted `candidate_id`. The API accepts no target path. The stored candidate is joined to its snapshot and original Top-K file metadata; the current policy is evaluated independently of M5 category, risk, confidence and evidence. Eligibility never follows from `risk != protected`. `USER_TEMP_STALE_FILE_PREFLIGHT_V1` allows an M5 medium/high-confidence `STALE_USER_TEMP_FILE` candidate for a single ordinary file of at least 1 MiB under the *current process user's* `C:\Users\…\AppData\Local\Temp` to enter **dry-run preflight only**, and it must still be at least seven days old now. It does not grant recycle eligibility. M5 classifications remain unchanged; any future real recycle rule must separately require high confidence and pass review.
+
+The policy rejects UNC, device, Volume GUID and extended-length paths, traversal, noncanonical path strings, paths outside C:, other users, directories and groups. Protected roots are `C:\Windows`, `C:\Program Files`, `C:\Program Files (x86)`, `C:\ProgramData`, `C:\Recovery`, `C:\System Volume Information`, and `C:\$Recycle.Bin`. `hiberfil.sys`, `pagefile.sys` and `swapfile.sys` are blocked by filename. Downloads, Desktop, Documents, general AppData and application cache cannot qualify. The 165.5 GiB service Temp dumps remain visible for review and **blocked**, because they are under `C:\Windows`.
+
+The implementation uses the current `USERPROFILE` path; it does not hardcode a username, elevate, change ownership, or alter ACLs. The local session and Origin checks apply to mutating HTTP requests. No batch or arbitrary-path execution route exists.
+
+## Preflight, token and audit
+
+`POST /api/v1/cleanup/prepare` takes `{candidate_id, requested_action: "recycle"}`. It performs a metadata-only check and returns the historical/current size and mtime, checks, block reasons, planned action and, only for an eligible preflight, a 90-second execution token. This is a dry run and does not touch file content. The token is random; only its SHA-256 digest is stored in SQLite. Audit listing uses a separate operation ID and never returns the token or digest.
+
+Before reading the target metadata, the preflight validates the path syntax and scope. It then uses `lstat` on each parent and the target to reject symlinks/reparse points, non-directory parents, non-regular targets and cross-volume transitions. It compares current size and mtime with the original `file_snapshots` row, verifies candidate size still matches that row, and checks current age. Missing targets, access denial, sharing violations and changed targets produce explicit block codes. Neither prepare nor execute reads the file body or hashes it.
+
+`POST /api/v1/cleanup/execute` accepts only `{execution_token}`. It checks expiry and single-use state, refuses operation while a scan is active, reloads the candidate and rechecks metadata immediately. This reduces, but **does not eliminate TOCTOU**: a path can still change after validation, and Python path-based APIs alone do not provide a race-free handle-bound recycle operation. Accordingly, a valid execute attempt ends with `EXECUTION_NOT_ENABLED_YET` and no target mutation. Expired, consumed and changed-token attempts have distinct outcomes. A single process lock serializes these attempts; there is no executing worker or crash-recovery claim while real execution is disabled. Scan/execute conflicts return `OPERATION_CONFLICT`.
+
+SQLite schema v3 is an in-place v2→v3 migration adding `cleanup_execution_runs`; snapshots, candidate runs and candidates remain. Each prepared or policy-blocked request is audited with candidate/snapshot/rule IDs, path, historical and preflight metadata, checks, reason, timestamps and result. No content is logged. `GET /api/v1/cleanup/executions` and `/{id}` expose the audit to the local session. An audit is not an undo feature.
+
+## Recycle decision and acceptance
+
+We deferred real recycle. [Microsoft's SHFileOperation documentation](https://learn.microsoft.com/en-us/windows/win32/api/shellapi/nf-shellapi-shfileoperationw) states that deletion is permanent unless the recycle flag is set, and [the structure documentation](https://learn.microsoft.com/en-us/windows/win32/api/shellapi/ns-shellapi-shfileopstructa) notes additional full-path and path-prefix constraints. A tested single-file, noninteractive, non-elevated, fail-closed Windows integration and handle/path race review are required before enabling it. The current code contains no Shell operation, `os.unlink`, `Path.unlink`, or permanent-delete fallback for C:.
+
+No real C: file, including the existing Windows dumps, was used for execution testing. The first future real acceptance must use only a DiskScope-created `%LOCALAPPDATA%\Temp\DiskScope-M6-Acceptance\probe.bin` and explicitly verify its destination. Even a successful recycle must be reported as **“已移入回收站”**, never as guaranteed freed disk bytes; DiskScope does not empty the Recycle Bin. Current UI says the gate is dry-run only and shows audit results.

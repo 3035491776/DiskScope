@@ -10,6 +10,7 @@ from app.api.session import router as session_router
 from app.api.snapshots import router as snapshots_router
 from app.api.candidates import router as candidates_router
 from app.api.results import router as results_router
+from app.api.cleanup import router as cleanup_router
 from app.core.config import APP_NAME, APP_VERSION, FRONTEND_DIST, HOST, PORT
 
 
@@ -28,6 +29,7 @@ app.include_router(volumes_router)
 app.include_router(snapshots_router)
 app.include_router(candidates_router)
 app.include_router(results_router)
+app.include_router(cleanup_router)
 
 
 @app.middleware("http")

@@ -330,6 +330,58 @@ export interface CleanupCandidate {
   source_rule_id: string
   rule_version: string
   group_id: string | null
+  execution_hint?: 'prepare_available' | 'suggestion_only'
+  execution_policy?: {
+    eligibility: 'ineligible' | 'eligible_for_review'
+    allowed_actions: string[]
+    block_reasons: string[]
+    required_checks: string[]
+    real_execution_enabled: false
+  }
+}
+
+export interface CleanupPreflight {
+  candidate_id: string
+  current_path: string
+  snapshot_size: number
+  snapshot_mtime: string | null
+  current_size: number | null
+  current_mtime: string | null
+  eligibility: 'ineligible' | 'eligible_for_review'
+  checks: { check: string; passed: boolean }[]
+  block_reasons: string[]
+  planned_action: 'none' | 'dry_run_only'
+}
+
+export interface PreparedCleanup {
+  execution_id: string
+  execution_token: string | null
+  expires_at: string | null
+  preflight: CleanupPreflight
+  real_execution_enabled: false
+}
+
+export interface CleanupExecution {
+  id: string
+  candidate_id: string
+  prepare_time: string
+  original_path: string
+  requested_action: string
+  status: string
+  failure_code: string | null
+  final_result: string | null
+}
+
+export function prepareCleanup(candidateId: string): Promise<PreparedCleanup> {
+  return apiJson('/api/v1/cleanup/prepare', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ candidate_id: candidateId, requested_action: 'recycle' }),
+  })
+}
+
+export async function getCleanupExecutions(): Promise<CleanupExecution[]> {
+  const result = await apiJson<{ items: CleanupExecution[] }>('/api/v1/cleanup/executions?limit=10')
+  return result.items
 }
 
 export interface CandidateRun {

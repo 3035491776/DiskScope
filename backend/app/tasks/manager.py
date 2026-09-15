@@ -14,6 +14,7 @@ from app.scanner.scope_registry import resolve_scan_scope
 from app.scanner.policy import SCAN_POLICY
 from app.scanner.service import scan_fixture
 from app.snapshots.store import SnapshotStore, SnapshotStoreError, snapshot_store
+from app.operations import operations
 
 
 ACTIVE_STATES = {"queued", "running", "cancelling"}
@@ -121,6 +122,8 @@ class ScanTaskManager:
     ) -> dict[str, object]:
         scope = resolve_scan_scope(requested_root, scope_key, confirmed_readonly)
         with self._lock:
+            if operations.cleanup_executing:
+                raise ScanAlreadyRunning("OPERATION_CONFLICT")
             if sum(task.state in ACTIVE_STATES for task in self._tasks.values()) >= SCAN_POLICY.max_active_scans:
                 raise ScanAlreadyRunning("A scan is already active.")
             task = ScanTask(
@@ -268,6 +271,10 @@ class ScanTaskManager:
             if task.state not in RESULT_STATES or task.result is None:
                 raise ResultNotReady("The scan result is not available yet.")
             return task.result
+
+    def has_active_scan(self) -> bool:
+        with self._lock:
+            return any(task.state in ACTIVE_STATES for task in self._tasks.values())
 
     def _find(self, scan_id: str) -> ScanTask:
         try:

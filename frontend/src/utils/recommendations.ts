@@ -33,3 +33,25 @@ export function coverageMessage(coverage: string | undefined): string {
 }
 
 export const topKMessage = '候选基于已保存扫描结果中的大文件 Top-K 与目录聚合，不代表完整文件级清理扫描。'
+
+export function executionStatus(candidate: CleanupCandidate): string {
+  if (candidate.execution_hint === 'prepare_available') return '可准备处理 · 当前版本仅预检'
+  const reasons = candidate.execution_policy?.block_reasons ?? []
+  if (reasons.includes('EXECUTION_PROTECTED_PATH')) return '当前执行策略不支持处理 Windows 或系统保护路径中的文件'
+  if (reasons.includes('DIRECTORY_EXECUTION_NOT_SUPPORTED')) return '当前版本不支持处理目录或分组'
+  if (reasons.includes('EXECUTION_CURRENT_USER_TEMP_ONLY')) return '当前版本仅建议；只开放当前用户临时文件预检'
+  return '当前版本仅建议'
+}
+
+export function executionReasonLabel(code: string): string {
+  return {
+    TARGET_CHANGED_SINCE_SCAN: '该文件自扫描后已发生变化，请重新扫描或重新评估。',
+    TARGET_CHANGED_SINCE_PREPARE: '该文件在预检后又发生变化，处理已阻止。',
+    TARGET_NO_LONGER_EXISTS: '该文件已不存在，历史记录仍会保留。',
+    EXECUTION_REPARSE_POINT_BLOCKED: '路径中出现链接或系统重定向，处理已阻止。',
+    ACCESS_DENIED: '当前权限不足，DiskScope 不会绕过 Windows 权限。',
+    TARGET_IN_USE: '该文件可能正在使用，DiskScope 不会强制关闭应用或解锁文件。',
+    OPERATION_CONFLICT: '扫描或另一项处理正在进行，请稍后再试。',
+    EXECUTION_FILE_TOO_RECENT: '该文件当前不足七天，处理已阻止。',
+  }[code] ?? code
+}
