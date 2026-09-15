@@ -231,7 +231,7 @@ class ServiceAndApiTests(unittest.TestCase):
             connection.commit()
         self.assertEqual(self.store.get(self.snapshot_id)["snapshot_id"], self.snapshot_id)
         with closing(sqlite3.connect(self.database)) as connection:
-            self.assertEqual(connection.execute("PRAGMA user_version").fetchone()[0], 3)
+            self.assertEqual(connection.execute("PRAGMA user_version").fetchone()[0], 4)
             self.assertEqual(connection.execute("SELECT COUNT(*) FROM cleanup_candidates").fetchone()[0], before)
             self.assertEqual(connection.execute("PRAGMA foreign_key_check").fetchall(), [])
             self.assertEqual(connection.execute("PRAGMA integrity_check").fetchone()[0], "ok")

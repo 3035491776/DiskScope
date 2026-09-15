@@ -1,8 +1,8 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import EmptyState from '../components/EmptyState.vue'
-import { analyzeSnapshot, getCandidateDetail, getCandidates, getCleanupExecutions, prepareCleanup } from '../services/api'
-import type { CandidateRun, CandidateSummary, CleanupCandidate, CleanupExecution, PreparedCleanup, SnapshotSummary } from '../services/api'
+import { analyzeSnapshot, createControlledProbe, executeCleanup, getCandidateDetail, getCandidates, getCleanupExecutions, prepareCleanup, prepareControlledProbe } from '../services/api'
+import type { CandidateRun, CandidateSummary, CleanupCandidate, CleanupExecution, CleanupExecutionResult, ControlledProbe, PreparedCleanup, SnapshotSummary } from '../services/api'
 import { useScanStore } from '../stores/scan'
 import { formatBytes, formatLocalTime, formatNumber, formatSeconds } from '../utils/format'
 import { actionLabel, categoryLabel, confidenceLabel, coverageMessage, executionReasonLabel, executionStatus, riskLabel, topKMessage } from '../utils/recommendations'
@@ -24,6 +24,12 @@ const detailError = ref('')
 const prepared = ref<PreparedCleanup | null>(null)
 const prepareLoading = ref(false)
 const executionHistory = ref<CleanupExecution[]>([])
+const controlledProbe = ref<ControlledProbe | null>(null)
+const probePlan = ref<PreparedCleanup | null>(null)
+const probeDialogOpen = ref(false)
+const probeResult = ref<CleanupExecutionResult | null>(null)
+const probeLoading = ref(false)
+const probeError = ref('')
 let requestNumber = 0
 
 const categories = computed(() => Object.keys(summary.value?.by_category ?? {}).sort())
@@ -109,14 +115,58 @@ async function loadExecutionHistory() {
   catch { executionHistory.value = [] }
 }
 
+async function createProbeTest() {
+  probeLoading.value = true
+  probeError.value = ''
+  probePlan.value = null
+  probeDialogOpen.value = false
+  probeResult.value = null
+  try { controlledProbe.value = await createControlledProbe() }
+  catch (cause) { probeError.value = cause instanceof Error ? cause.message : '无法创建受控测试文件' }
+  finally { probeLoading.value = false }
+}
+
+async function prepareProbeTest() {
+  if (!controlledProbe.value) return
+  probeLoading.value = true
+  probeError.value = ''
+  try {
+    probePlan.value = await prepareControlledProbe(controlledProbe.value.probe_id)
+    probeDialogOpen.value = true
+    if (probePlan.value.execution_token) controlledProbe.value = { ...controlledProbe.value, state: 'prepared' }
+  }
+  catch (cause) { probeError.value = cause instanceof Error ? cause.message : '测试文件预检失败' }
+  finally { probeLoading.value = false }
+}
+
+async function recycleProbeTest() {
+  const token = probePlan.value?.execution_token
+  if (!token || !probePlan.value?.real_execution_enabled) return
+  probeLoading.value = true
+  probeError.value = ''
+  try {
+    probeResult.value = await executeCleanup(token)
+    if (controlledProbe.value) controlledProbe.value = { ...controlledProbe.value, state: 'recycled' }
+    probePlan.value = null
+    probeDialogOpen.value = false
+    await loadExecutionHistory()
+  }
+  catch (cause) {
+    probeError.value = cause instanceof Error ? cause.message : '移入回收站失败；测试文件未被永久删除'
+    if (controlledProbe.value) controlledProbe.value = { ...controlledProbe.value, state: 'invalidated' }
+    await loadExecutionHistory()
+  }
+  finally { probeLoading.value = false }
+}
+
 watch(() => store.sessionReady, ready => { if (ready) void loadRecommendations() }, { immediate: true })
 watch(() => store.sessionReady, ready => { if (ready) void loadExecutionHistory() }, { immediate: true })
 watch([category, confidence], () => { if (store.sessionReady) void loadRecommendations(false) })
 </script>
 
 <template>
-  <div class="page-heading"><div><p class="eyebrow">RECOMMENDATIONS / SAVED SNAPSHOT</p><h1>空间建议</h1><p class="page-description">解释哪些项目值得关注，以及识别依据与处理风险。</p></div><span class="read-only-chip">执行门禁 · 真实处理未开放</span></div>
-  <p class="coverage-note">历史快照不是处理授权。准备处理会重新检查当前文件；本版仅提供预检，不会移动或删除文件。</p>
+  <div class="page-heading"><div><p class="eyebrow">RECOMMENDATIONS / SAVED SNAPSHOT</p><h1>空间建议</h1><p class="page-description">解释哪些项目值得关注，以及识别依据与处理风险。</p></div><span class="read-only-chip">执行门禁 · 真实候选处理未开放</span></div>
+  <p class="coverage-note">历史快照不是处理授权。下方历史候选仅提供预检，不会移动或删除文件。</p>
   <section class="panel"><div class="panel-heading"><div><p class="eyebrow">SOURCE</p><h2>Windows C: · 基于已保存扫描结果</h2></div><button type="button" class="text-button" :disabled="loading || !latestSnapshot" @click="loadRecommendations(true)">重新分析已保存快照</button></div>
     <p v-if="!store.sessionReady" class="inline-note">请从 start.bat 打开本地页面，以查看已保存的扫描结果。</p>
     <template v-else><div class="recommendation-meta"><span>扫描时间：{{ formatLocalTime(latestSnapshot?.completed_at) }}</span><span>规则版本：{{ run?.rule_version ?? 'rules-v1.0.0' }}</span><span>分析范围：大文件 Top-K + 目录聚合</span><span v-if="run">分析耗时：{{ formatSeconds(run.duration_ms) }}</span></div>
@@ -151,6 +201,36 @@ watch([category, confidence], () => { if (store.sessionReady) void loadRecommend
       <ul v-if="prepared.preflight.block_reasons.length"><li v-for="reason in prepared.preflight.block_reasons" :key="reason">{{ executionReasonLabel(reason) }}</li></ul>
       <p class="fine-print">预检不会修改文件。令牌 {{ prepared.expires_at ? `于 ${formatLocalTime(prepared.expires_at)} 过期` : '未签发' }}；本版执行功能关闭。</p>
       <div class="confirm-actions"><button type="button" class="primary-button" @click="prepared = null">返回建议</button></div>
+    </section>
+  </div>
+  <section class="panel controlled-probe-panel">
+    <div class="panel-heading"><div><p class="eyebrow">CONTROLLED PROBE TEST</p><h2>安全执行测试</h2></div><span class="read-only-chip">仅限 DiskScope 自建文件</span></div>
+    <p class="inline-note">仅测试 DiskScope 本次运行创建并登记的 64 KB 临时文件，不会处理您的现有文件。真实候选仍保持只读。</p>
+    <div v-if="controlledProbe" class="probe-summary">
+      <div><strong>{{ controlledProbe.absolute_path.split('\\').pop() }}</strong><p class="path-cell" :title="controlledProbe.absolute_path">{{ controlledProbe.absolute_path }}</p></div>
+      <div class="recommendation-tags"><span>{{ formatBytes(controlledProbe.expected_size) }}</span><span>{{ formatLocalTime(controlledProbe.created_at) }}</span><span>{{ controlledProbe.state }}</span></div>
+    </div>
+    <p v-if="probeResult" class="coverage-note"><strong>已移入回收站。</strong> 项目已从原位置移入 Windows 回收站；实际可用空间可能在清空回收站后才增加。</p>
+    <p v-if="probeError" class="inline-error" role="alert">{{ probeError }}</p>
+    <div class="confirm-actions">
+      <button type="button" class="primary-button" :disabled="probeLoading || !!controlledProbe" @click="createProbeTest">{{ probeLoading && !controlledProbe ? '正在创建…' : '创建测试文件' }}</button>
+      <button v-if="controlledProbe && controlledProbe.state === 'created' && !probeResult" type="button" class="primary-button" :disabled="probeLoading" @click="prepareProbeTest">{{ probeLoading ? '正在检查…' : '准备移入回收站' }}</button>
+      <button v-if="controlledProbe?.state === 'prepared' && probePlan && !probeDialogOpen" type="button" class="primary-button" @click="probeDialogOpen = true">查看执行计划</button>
+    </div>
+  </section>
+  <div v-if="probePlan && probeDialogOpen" class="modal-backdrop" @click.self="probeDialogOpen = false">
+    <section class="confirm-dialog recommendation-detail" role="dialog" aria-modal="true" aria-labelledby="probe-preflight-title">
+      <p class="eyebrow">CONTROLLED PROBE / CURRENT FILE</p><h2 id="probe-preflight-title">受控测试文件预检</h2>
+      <p class="coverage-note">此功能当前仅处理 DiskScope 为安全测试创建的文件。</p>
+      <p class="path-cell" :title="probePlan.preflight.current_path">{{ probePlan.preflight.current_path }}</p>
+      <p>创建时间：{{ formatLocalTime(probePlan.preflight.created_at) }}</p>
+      <p>登记信息：{{ formatBytes(probePlan.preflight.snapshot_size) }} · {{ formatLocalTime(probePlan.preflight.snapshot_mtime) }}</p>
+      <p>当前信息：{{ probePlan.preflight.current_size === null ? '无法读取' : formatBytes(probePlan.preflight.current_size) }} · {{ formatLocalTime(probePlan.preflight.current_mtime) }}</p>
+      <p><strong>动作：</strong>移入 Windows 回收站</p>
+      <p><strong>状态：</strong>{{ probePlan.preflight.block_reasons.length ? '该测试文件已变化，处理已阻止' : '当前 metadata 与登记信息一致' }}</p>
+      <ul v-if="probePlan.preflight.block_reasons.length"><li v-for="reason in probePlan.preflight.block_reasons" :key="reason">{{ executionReasonLabel(reason) }}</li></ul>
+      <p class="fine-print">Token 将于 {{ formatLocalTime(probePlan.expires_at) }} 过期。移入回收站不代表可用空间立即增加。</p>
+      <div class="confirm-actions"><button v-if="probePlan.real_execution_enabled && probePlan.execution_token" type="button" class="primary-button" :disabled="probeLoading" @click="recycleProbeTest">{{ probeLoading ? '正在移入…' : '移入 Windows 回收站' }}</button><button type="button" class="text-button" @click="probeDialogOpen = false">返回</button></div>
     </section>
   </div>
   <section class="panel"><div class="panel-heading"><div><p class="eyebrow">AUDIT</p><h2>操作记录</h2></div><button type="button" class="text-button" @click="loadExecutionHistory">刷新</button></div>

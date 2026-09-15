@@ -14,7 +14,8 @@ DiskScope 是 Windows 磁盘空间诊断工具。当前状态为 **V0.1 / M6 清
 - M4 固定 C: 范围、普通权限、安全校验、分类和容量口径见 [docs/m4-safe-c-drive-analysis.md](docs/m4-safe-c-drive-analysis.md)。D: 整卷仍锁定。
 - M5 “空间建议”仅分析已保存快照的 Top-K 文件与目录聚合，提供保守分类、风险、置信度和识别依据；SQLite v1 数据原位迁移至 v2。规则与限制见 [docs/m5-cleanup-intelligence.md](docs/m5-cleanup-intelligence.md)。不执行清理。
 - M5.1 总览、空间分析和大文件与目录可从最新已完成快照恢复；运行中展示进程资源指标，长路径与覆盖情况有明确展示。来源与历史安全边界见 [docs/m5.1-persistence-ux-stabilization.md](docs/m5.1-persistence-ux-stabilization.md)。
-- M6 新增独立执行策略、实时元数据预检、90 秒单次 token 和 SQLite v3 审计。`/api/v1/cleanup/prepare` 仅做 dry-run；`/api/v1/cleanup/execute` 对真实操作返回 `EXECUTION_NOT_ENABLED_YET`。安全边界与回收站暂缓原因见 [docs/m6-cleanup-execution-safety.md](docs/m6-cleanup-execution-safety.md)。
+- M6 新增独立执行策略、实时元数据预检、90 秒单次 token 和 SQLite v3 审计。现有候选的 `/api/v1/cleanup/prepare` 仅做 dry-run，execute 仍返回 `EXECUTION_NOT_ENABLED_YET`。安全边界见 [docs/m6-cleanup-execution-safety.md](docs/m6-cleanup-execution-safety.md)。
+- M6.1 只允许 DiskScope 本次进程在 `%LOCALAPPDATA%\Temp\DiskScope\probes` 下创建并登记的 64 KiB 测试文件经过完整门禁后移入 Windows 回收站。SQLite 原位升级至 v4；现有用户文件和 M5 候选没有获得真实处理能力。详见 [docs/m6.1-controlled-recycle-execution.md](docs/m6.1-controlled-recycle-execution.md)。
 - Low-Impact `standard` 策略：单枚举 worker、禁止跨卷和 reparse 跟随；开发区展示进程范围资源指标。设计与口径见 [docs/low-impact-scan.md](docs/low-impact-scan.md)。
 - `setup.bat`：检查本机 Python 和 Node.js，创建项目 `.venv`，安装依赖并构建前端。
 - `start.bat`：调用 `launcher/bootstrap.py` 启动后端，等待真实健康检查成功，再打开默认浏览器。

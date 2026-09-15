@@ -341,16 +341,18 @@ export interface CleanupCandidate {
 }
 
 export interface CleanupPreflight {
-  candidate_id: string
+  candidate_id: string | null
+  probe_id?: string
   current_path: string
+  created_at?: string
   snapshot_size: number
   snapshot_mtime: string | null
   current_size: number | null
   current_mtime: string | null
-  eligibility: 'ineligible' | 'eligible_for_review'
+  eligibility: 'ineligible' | 'eligible_for_review' | 'eligible_for_recycle'
   checks: { check: string; passed: boolean }[]
   block_reasons: string[]
-  planned_action: 'none' | 'dry_run_only'
+  planned_action: 'none' | 'dry_run_only' | 'recycle'
 }
 
 export interface PreparedCleanup {
@@ -358,24 +360,73 @@ export interface PreparedCleanup {
   execution_token: string | null
   expires_at: string | null
   preflight: CleanupPreflight
-  real_execution_enabled: false
+  real_execution_enabled: boolean
 }
 
 export interface CleanupExecution {
   id: string
-  candidate_id: string
+  candidate_id: string | null
+  probe_id: string | null
   prepare_time: string
   original_path: string
   requested_action: string
   status: string
   failure_code: string | null
   final_result: string | null
+  target_mutation: 'none' | 'recycle_bin' | 'unknown'
+  recycle_api_outcome: string | null
+}
+
+export interface ControlledProbe {
+  probe_id: string
+  session_id: string
+  absolute_path: string
+  created_at: string
+  expected_size: number
+  expected_mtime_ns: number
+  state: 'created' | 'prepared' | 'recycled' | 'invalidated' | 'failed'
+  failure_code: string | null
+}
+
+export interface CleanupExecutionResult {
+  execution_id: string
+  probe_id: string
+  status: 'completed'
+  final_result: 'recycled'
+  target_mutation: 'recycle_bin'
+  original_path_absent: true
+  message: string
 }
 
 export function prepareCleanup(candidateId: string): Promise<PreparedCleanup> {
   return apiJson('/api/v1/cleanup/prepare', {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ candidate_id: candidateId, requested_action: 'recycle' }),
+  })
+}
+
+export function createControlledProbe(): Promise<ControlledProbe> {
+  return apiJson('/api/v1/cleanup/probes', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}',
+  })
+}
+
+export async function getControlledProbes(): Promise<ControlledProbe[]> {
+  const result = await apiJson<{ items: ControlledProbe[] }>('/api/v1/cleanup/probes')
+  return result.items
+}
+
+export function prepareControlledProbe(probeId: string): Promise<PreparedCleanup> {
+  return apiJson(`/api/v1/cleanup/probes/${encodeURIComponent(probeId)}/prepare`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ requested_action: 'recycle' }),
+  })
+}
+
+export function executeCleanup(executionToken: string): Promise<CleanupExecutionResult> {
+  return apiJson('/api/v1/cleanup/execute', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ execution_token: executionToken }),
   })
 }
 

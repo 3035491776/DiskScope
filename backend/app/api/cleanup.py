@@ -1,4 +1,4 @@
-"""Candidate-ID-only cleanup preflight and audited, disabled execution endpoint."""
+"""M6 gate and M6.1 controlled-probe-only recycle endpoints."""
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, ConfigDict, Field
@@ -22,6 +22,15 @@ class ExecuteRequest(BaseModel):
     execution_token: str = Field(min_length=1, max_length=256)
 
 
+class CreateProbeRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+
+class PrepareProbeRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    requested_action: str = "recycle"
+
+
 def _error(exc: Exception) -> HTTPException:
     if isinstance(exc, CleanupError):
         return HTTPException(status_code=exc.status_code, detail=exc.code)
@@ -32,6 +41,30 @@ def _error(exc: Exception) -> HTTPException:
 def prepare(body: PrepareRequest) -> dict[str, object]:
     try:
         return cleanup_service.prepare(body.candidate_id, body.requested_action)
+    except (CleanupError, SnapshotStoreError) as exc:
+        raise _error(exc) from exc
+
+
+@router.post("/probes", dependencies=[Depends(require_local_origin)])
+def create_probe(body: CreateProbeRequest) -> dict[str, object]:
+    try:
+        return cleanup_service.create_probe()
+    except (CleanupError, SnapshotStoreError) as exc:
+        raise _error(exc) from exc
+
+
+@router.get("/probes")
+def list_probes() -> dict[str, object]:
+    try:
+        return {"items": cleanup_service.list_probes()}
+    except (CleanupError, SnapshotStoreError) as exc:
+        raise _error(exc) from exc
+
+
+@router.post("/probes/{probe_id}/prepare", dependencies=[Depends(require_local_origin)])
+def prepare_probe(probe_id: str, body: PrepareProbeRequest) -> dict[str, object]:
+    try:
+        return cleanup_service.prepare_probe(probe_id, body.requested_action)
     except (CleanupError, SnapshotStoreError) as exc:
         raise _error(exc) from exc
 

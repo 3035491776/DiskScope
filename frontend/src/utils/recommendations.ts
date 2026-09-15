@@ -47,11 +47,19 @@ export function executionReasonLabel(code: string): string {
   return {
     TARGET_CHANGED_SINCE_SCAN: '该文件自扫描后已发生变化，请重新扫描或重新评估。',
     TARGET_CHANGED_SINCE_PREPARE: '该文件在预检后又发生变化，处理已阻止。',
+    TARGET_CHANGED_SINCE_CREATE: '测试文件与创建时登记的信息不一致，处理已阻止。',
     TARGET_NO_LONGER_EXISTS: '该文件已不存在，历史记录仍会保留。',
     EXECUTION_REPARSE_POINT_BLOCKED: '路径中出现链接或系统重定向，处理已阻止。',
     ACCESS_DENIED: '当前权限不足，DiskScope 不会绕过 Windows 权限。',
     TARGET_IN_USE: '该文件可能正在使用，DiskScope 不会强制关闭应用或解锁文件。',
     OPERATION_CONFLICT: '扫描或另一项处理正在进行，请稍后再试。',
     EXECUTION_FILE_TOO_RECENT: '该文件当前不足七天，处理已阻止。',
+    CONTROLLED_PROBE_BOUNDARY_BLOCKED: '该对象不属于本次运行登记的受控测试目录。',
+    CONTROLLED_PROBE_STATE_BLOCKED: '该测试文件当前状态不允许再次处理。',
+    CONTROLLED_PROBE_NOT_FOUND: '没有找到本次运行登记的测试文件。',
+    EXECUTION_CROSS_VOLUME_BLOCKED: '路径在验证过程中跨越了磁盘卷，处理已阻止。',
+    RECYCLE_OPERATION_ABORTED: 'Windows 中止了回收站操作，DiskScope 未使用永久删除。',
+    RECYCLE_OPERATION_FAILED: 'Windows 回收站操作失败，DiskScope 未使用永久删除。',
+    RECYCLE_ORIGINAL_PATH_REMAINS: '原始路径仍然存在，回收站操作未被判定为成功。',
   }[code] ?? code
 }

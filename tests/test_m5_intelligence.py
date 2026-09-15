@@ -162,7 +162,7 @@ class CandidatePersistenceAndApiTests(unittest.TestCase):
         self.assertEqual(first["run"]["snapshot_coverage"], "limited")
         self.assertEqual(self.snapshots.get(snapshot_id)["scope_key"], "system_drive_c")
         with closing(sqlite3.connect(self.database)) as connection:
-            self.assertEqual(connection.execute("PRAGMA user_version").fetchone()[0], 3)
+            self.assertEqual(connection.execute("PRAGMA user_version").fetchone()[0], 4)
             self.assertEqual(connection.execute("SELECT COUNT(*) FROM candidate_runs").fetchone()[0], 1)
             self.assertGreater(connection.execute("SELECT COUNT(*) FROM cleanup_candidates").fetchone()[0], 0)
             self.assertTrue(connection.execute("SELECT evidence_json FROM cleanup_candidates LIMIT 1").fetchone()[0])

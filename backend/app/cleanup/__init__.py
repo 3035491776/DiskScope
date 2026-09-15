@@ -1,1 +1,1 @@
-"""M6 cleanup execution gate. Real target mutation is deliberately disabled."""
+"""M6 gate and M6.1 controlled-probe-only Windows Recycle Bin execution."""

@@ -14,7 +14,7 @@ from app.scanner.models import ScanResult
 from app.snapshots.compare import compare_directories, compare_top_files, delta_ratio
 
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 RETENTION_PER_SCOPE = 20
 DEFAULT_DATABASE = PROJECT_ROOT / "data" / "diskscope.db"
 SUMMARY_COLUMNS = ("id AS snapshot_id, scan_id, scope_key, scope_label, status, "
@@ -79,7 +79,19 @@ class SnapshotStore:
                     raise SnapshotStoreError("SNAPSHOT_DATABASE_UNAVAILABLE")
                 if version == 2:
                     self._migrate_v2_to_v3(connection)
-                elif version == 3 and "cleanup_execution_runs" not in actual:
+                    version = 3
+                actual = {row[0] for row in connection.execute(
+                    "SELECT name FROM sqlite_master WHERE type = 'table'"
+                )}
+                if "cleanup_execution_runs" not in actual:
+                    raise SnapshotStoreError("SNAPSHOT_DATABASE_UNAVAILABLE")
+                if version == 3:
+                    self._migrate_v3_to_v4(connection)
+                    version = 4
+                actual = {row[0] for row in connection.execute(
+                    "SELECT name FROM sqlite_master WHERE type = 'table'"
+                )}
+                if version != SCHEMA_VERSION or "controlled_probes" not in actual:
                     raise SnapshotStoreError("SNAPSHOT_DATABASE_UNAVAILABLE")
             yield connection
         except sqlite3.Error as exc:
@@ -123,7 +135,8 @@ class SnapshotStore:
             connection.execute("CREATE INDEX directory_parent ON directory_snapshots(snapshot_id, parent_relative_path)")
             # The UNIQUE constraints also index (snapshot_id, relative_path) for both child tables.
             SnapshotStore._create_candidate_tables(connection)
-            SnapshotStore._create_execution_tables(connection)
+            SnapshotStore._create_controlled_probe_table(connection)
+            SnapshotStore._create_execution_table_v4(connection)
             connection.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
             connection.commit()
         except Exception:
@@ -165,7 +178,7 @@ class SnapshotStore:
             raise
 
     @staticmethod
-    def _create_execution_tables(connection: sqlite3.Connection) -> None:
+    def _create_execution_table_v3(connection: sqlite3.Connection) -> None:
         connection.execute("""CREATE TABLE IF NOT EXISTS cleanup_execution_runs (
             id TEXT PRIMARY KEY, token_hash TEXT UNIQUE, candidate_id TEXT NOT NULL,
             snapshot_id TEXT NOT NULL, rule_version TEXT NOT NULL,
@@ -184,8 +197,81 @@ class SnapshotStore:
         try:
             connection.execute("BEGIN IMMEDIATE")
             if connection.execute("PRAGMA user_version").fetchone()[0] == 2:
-                SnapshotStore._create_execution_tables(connection)
+                SnapshotStore._create_execution_table_v3(connection)
                 connection.execute("PRAGMA user_version = 3")
+            connection.commit()
+        except Exception:
+            connection.rollback()
+            raise
+
+    @staticmethod
+    def _create_controlled_probe_table(connection: sqlite3.Connection) -> None:
+        connection.execute("""CREATE TABLE IF NOT EXISTS controlled_probes (
+            probe_id TEXT PRIMARY KEY, session_id TEXT NOT NULL,
+            absolute_path TEXT NOT NULL UNIQUE, created_at TEXT NOT NULL,
+            expected_size INTEGER NOT NULL, expected_mtime_ns INTEGER NOT NULL,
+            expected_ctime_ns INTEGER NOT NULL, expected_device INTEGER NOT NULL,
+            expected_inode INTEGER NOT NULL, creation_nonce_hash TEXT NOT NULL,
+            state TEXT NOT NULL CHECK(state IN
+                ('created', 'prepared', 'recycled', 'invalidated', 'failed')),
+            updated_at TEXT NOT NULL, failure_code TEXT)""")
+        connection.execute(
+            "CREATE INDEX IF NOT EXISTS probe_session_state ON controlled_probes(session_id, state)")
+
+    @staticmethod
+    def _create_execution_table_v4(connection: sqlite3.Connection) -> None:
+        connection.execute("""CREATE TABLE IF NOT EXISTS cleanup_execution_runs (
+            id TEXT PRIMARY KEY, token_hash TEXT UNIQUE, candidate_id TEXT,
+            probe_id TEXT REFERENCES controlled_probes(probe_id), snapshot_id TEXT,
+            scope_key TEXT NOT NULL, rule_version TEXT NOT NULL,
+            requested_action TEXT NOT NULL, planned_action TEXT NOT NULL,
+            eligibility TEXT NOT NULL, prepare_time TEXT NOT NULL, expires_at TEXT,
+            execute_time TEXT, status TEXT NOT NULL, original_path TEXT NOT NULL,
+            snapshot_size INTEGER NOT NULL, snapshot_mtime TEXT,
+            preflight_size INTEGER, preflight_mtime TEXT,
+            execute_size INTEGER, execute_mtime TEXT, fingerprint_json TEXT,
+            checks_json TEXT NOT NULL, block_reasons_json TEXT NOT NULL,
+            policy_decision TEXT NOT NULL, token_outcome TEXT NOT NULL,
+            recycle_api_outcome TEXT, final_result TEXT, failure_code TEXT,
+            target_mutation TEXT NOT NULL,
+            CHECK(candidate_id IS NOT NULL OR probe_id IS NOT NULL))""")
+        connection.execute(
+            "CREATE INDEX IF NOT EXISTS execution_prepare_time ON cleanup_execution_runs(prepare_time DESC)")
+        connection.execute(
+            "CREATE INDEX IF NOT EXISTS execution_probe ON cleanup_execution_runs(probe_id, prepare_time DESC)")
+
+    @staticmethod
+    def _migrate_v3_to_v4(connection: sqlite3.Connection) -> None:
+        try:
+            connection.execute("BEGIN IMMEDIATE")
+            if connection.execute("PRAGMA user_version").fetchone()[0] == 3:
+                SnapshotStore._create_controlled_probe_table(connection)
+                connection.execute(
+                    "ALTER TABLE cleanup_execution_runs RENAME TO cleanup_execution_runs_v3")
+                connection.execute("DROP INDEX IF EXISTS execution_prepare_time")
+                SnapshotStore._create_execution_table_v4(connection)
+                connection.execute("""INSERT INTO cleanup_execution_runs (
+                    id, token_hash, candidate_id, probe_id, snapshot_id, scope_key,
+                    rule_version, requested_action, planned_action, eligibility,
+                    prepare_time, expires_at, execute_time, status, original_path,
+                    snapshot_size, snapshot_mtime, preflight_size, preflight_mtime,
+                    execute_size, execute_mtime, fingerprint_json, checks_json,
+                    block_reasons_json, policy_decision, token_outcome,
+                    recycle_api_outcome, final_result, failure_code, target_mutation)
+                    SELECT id, token_hash, candidate_id, NULL, snapshot_id,
+                    'system_drive_c', rule_version, requested_action, 'dry_run_only',
+                    eligibility, prepare_time, expires_at, execute_time, status,
+                    original_path, snapshot_size, snapshot_mtime, preflight_size,
+                    preflight_mtime, NULL, NULL, fingerprint_json, checks_json,
+                    block_reasons_json, eligibility,
+                    CASE WHEN status = 'prepared' THEN 'active'
+                         WHEN status = 'expired' THEN 'expired'
+                         WHEN execute_time IS NOT NULL THEN 'consumed'
+                         ELSE 'not_issued' END,
+                    NULL, final_result, failure_code, 'none'
+                    FROM cleanup_execution_runs_v3""")
+                connection.execute("DROP TABLE cleanup_execution_runs_v3")
+                connection.execute("PRAGMA user_version = 4")
             connection.commit()
         except Exception:
             connection.rollback()
