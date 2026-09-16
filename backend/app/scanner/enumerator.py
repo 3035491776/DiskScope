@@ -1,37 +1,42 @@
 import os
 import stat
 from dataclasses import dataclass
-from datetime import datetime, timezone
 from pathlib import Path
 from threading import Event
 from typing import Iterator
 
 from app.scanner.errors import classify_os_error
 from app.scanner.exclusions import project_exclusion
-from app.scanner.models import FileMetadata
-from app.scanner.path_guard import InvalidScanRoot, assert_safe_directory, is_reparse_point
-from app.scanner.volume_guard import same_scan_volume
+from app.scanner.path_guard import (
+    InvalidScanRoot, assert_safe_queued_directory, is_reparse_point, prepare_scan_root,
+)
+from app.scanner.volume_guard import path_matches_volume, volume_identity
 from app.core.config import PROJECT_ROOT
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class DirectorySeen:
     relative_path: str
     parent: str | None
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class FileSeen:
-    file: FileMetadata
+    name: str
+    relative_path: str
+    parent: str
+    size_bytes: int
+    mtime_epoch: float
+    attributes: int | None
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class ScanProblem:
     code: str
     relative_path: str
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class ExcludedPath:
     rule: str
     relative_path: str
@@ -46,16 +51,19 @@ class RootUnavailable(OSError):
 
 def enumerate_metadata(root: Path, cancel: Event, scope_key: str | None = None) -> Iterator[ScanEvent]:
     """Stream metadata events; retain only pending directory paths."""
-    pending: list[tuple[Path, str, str | None]] = [(root, "", None)]
+    try:
+        approved_root = prepare_scan_root(root, scope_key)
+    except InvalidScanRoot as exc:
+        raise RootUnavailable("The scan root became unavailable.") from exc
+    root_drive = volume_identity(approved_root)
+    pending: list[tuple[Path, str, str | None]] = [(approved_root, "", None)]
     while pending:
         if cancel.is_set():
             return
         path, relative_path, parent = pending.pop()
-        if not same_scan_volume(root, path):
-            yield ScanProblem("CROSS_VOLUME_SKIPPED", relative_path)
-            continue
         try:
-            assert_safe_directory(root, path, scope_key)
+            if relative_path:
+                assert_safe_queued_directory(approved_root, path)
         except InvalidScanRoot as exc:
             if not relative_path:
                 raise RootUnavailable("The scan root became unavailable.") from exc
@@ -73,12 +81,12 @@ def enumerate_metadata(root: Path, cancel: Event, scope_key: str | None = None) 
                     child_relative = (
                         f"{relative_path}/{entry.name}" if relative_path else entry.name
                     )
-                    if root == PROJECT_ROOT:
+                    if approved_root == PROJECT_ROOT:
                         rule = project_exclusion(child_relative)
                         if rule is not None:
                             yield ExcludedPath(rule, child_relative)
                             continue
-                    if not same_scan_volume(root, Path(entry.path)):
+                    if not path_matches_volume(root_drive, entry.path):
                         yield ScanProblem("CROSS_VOLUME_SKIPPED", child_relative)
                         continue
                     try:
@@ -89,16 +97,9 @@ def enumerate_metadata(root: Path, cancel: Event, scope_key: str | None = None) 
                             children.append((Path(entry.path), child_relative, relative_path))
                         elif stat.S_ISREG(info.st_mode):
                             yield FileSeen(
-                                FileMetadata(
-                                    name=entry.name,
-                                    relative_path=child_relative,
-                                    parent=relative_path,
-                                    size_bytes=max(0, info.st_size),
-                                    mtime=datetime.fromtimestamp(
-                                        info.st_mtime, timezone.utc
-                                    ).isoformat(),
-                                    attributes=getattr(info, "st_file_attributes", None),
-                                )
+                                entry.name, child_relative, relative_path,
+                                max(0, info.st_size), info.st_mtime,
+                                getattr(info, "st_file_attributes", None),
                             )
                         else:
                             yield ScanProblem("INVALID_PATH", child_relative)

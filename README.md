@@ -1,6 +1,6 @@
 # DiskScope
 
-DiskScope 是安全、低影响、可解释的 Windows 磁盘空间诊断工具。当前状态为 **V0.1 / M7 产品稳定与体验收口**。C: 与当前用户 Temp 扫描保持 metadata-only；受保护执行门仍只允许逐个确认的严格合格文件进入 Windows 回收站。
+DiskScope 是安全、低影响、可解释的 Windows 磁盘空间诊断工具。当前状态为 **V0.1 / M8 扫描性能与资源效率**。C: 与当前用户 Temp 扫描保持 metadata-only；受保护执行门仍只允许逐个确认的严格合格文件进入 Windows 回收站。
 
 ## 当前实现
 
@@ -20,6 +20,7 @@ DiskScope 是安全、低影响、可解释的 Windows 磁盘空间诊断工具�
 - M6.3 增加固定 `current_user_temp` metadata-only 扫描，以 10,000 项硬上限保存最大与最旧文件的确定性混合元数据，并明确报告完整或受限覆盖。结果进入独立 Snapshot、M5 候选分析和 M6.2 只读资格评估；不自动 prepare、签发 token 或执行。详见 [docs/m6.3-user-temp-candidate-discovery.md](docs/m6.3-user-temp-candidate-discovery.md)。
 - M6.4 由 `ExecutionPolicyEngine` 返回结构化、确定性的 `PolicyDecision`，通过只读 API 和空间建议页解释候选为什么符合或不符合 guarded cleanup policy，并分别统计主要原因与全部原因及对应字节数。诊断基于历史快照元数据，不是执行授权，不会自动 prepare、签发 token 或执行。详见 [docs/m6.4-eligibility-diagnostics.md](docs/m6.4-eligibility-diagnostics.md)。
 - M7 分离当前结果、下一次扫描范围和 History 比较范围，收拢 Recommendations 信息层级，完善覆盖语义、Dialog 键盘可访问性和启动 fragment 清理；不改变 M6 策略与执行边界。详见 [docs/m7-product-stabilization.md](docs/m7-product-stabilization.md)。
+- M8 基于 cProfile 与可重复 fixture 消除重复 root/path 校验、无效 Top-K 对象构建和高频进度回调，并用 slotted metadata 模型降低目录聚合内存；保持单 worker、逐 entry 取消、reparse/跨卷保护与 schema v6。详见 [docs/m8-scan-performance.md](docs/m8-scan-performance.md)。
 - Low-Impact `standard` 策略：单枚举 worker、禁止跨卷和 reparse 跟随；扫描状态展示必要的进程资源概览，内部标识留在技术详情。设计与口径见 [docs/low-impact-scan.md](docs/low-impact-scan.md)。
 - `setup.bat`：检查本机 Python 和 Node.js，创建项目 `.venv`，安装依赖并构建前端。
 - `start.bat`：调用 `launcher/bootstrap.py` 启动后端，等待真实健康检查成功，再打开默认浏览器。
@@ -59,6 +60,8 @@ npm.cmd --prefix frontend run dev
 ## 受控样本与测试
 
 `tests/fixtures/generate_sample.py` 可重复生成 `sample_disk`：10 个文件、17 个目录（含根目录）、10,604,544 字节。`--medium` 还会生成 10,000 文件、1,001 目录的性能样本。生成的文件均不进入 Git。
+
+`tests/benchmark_m8.py` 使用相同 fixture 做 warmup 后重复计时，并可生成 50,000 个零内容文件的临时 metadata workload；它还记录 CPU、RSS、进程 I/O、Snapshot 保存和取消延迟，运行后自动移除大型临时样本。
 
 ```powershell
 .venv\Scripts\python.exe tests\fixtures\generate_sample.py

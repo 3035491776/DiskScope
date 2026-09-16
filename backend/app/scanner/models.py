@@ -1,7 +1,7 @@
 from dataclasses import dataclass, field
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class FileMetadata:
     name: str
     relative_path: str
@@ -11,7 +11,7 @@ class FileMetadata:
     attributes: int | None = None
 
 
-@dataclass
+@dataclass(slots=True)
 class DirectoryStats:
     relative_path: str
     parent: str | None

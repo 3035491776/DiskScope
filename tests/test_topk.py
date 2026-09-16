@@ -1,7 +1,7 @@
 import unittest
 
 from app.scanner.models import FileMetadata
-from app.scanner.topk import TopKFiles
+from app.scanner.topk import BoundedHybridFiles, TopKFiles
 
 
 def file(path: str, size: int) -> FileMetadata:
@@ -37,6 +37,23 @@ class TopKTests(unittest.TestCase):
         top = TopKFiles(1)
         top.add(file("zero", 0))
         self.assertEqual(top.sorted_files()[0].size_bytes, 0)
+
+    def test_observations_keep_top_k_without_materializing_every_file(self) -> None:
+        top = TopKFiles(2)
+        for path, size in (("z", 5), ("b", 5), ("a", 5), ("tiny", 1)):
+            top.add_observation(path, path, "", size, 1_704_067_200, None)
+        self.assertEqual([item.relative_path for item in top.sorted_files()], ["a", "b"])
+
+    def test_hybrid_observations_preserve_size_and_oldest_selection(self) -> None:
+        hybrid = BoundedHybridFiles(4)
+        values = ((9, 50), (8, 40), (1, 10), (2, 20), (7, 30))
+        for index, (size, mtime) in enumerate(values):
+            path = f"f{index}"
+            hybrid.add_observation(path, path, "", size, mtime, None)
+        selected = hybrid.selected_files(5)
+        self.assertEqual(
+            {item.relative_path for item in selected}, {"f0", "f1", "f2", "f3"}
+        )
 
 
 if __name__ == "__main__":

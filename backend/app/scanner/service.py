@@ -31,6 +31,7 @@ def scan_fixture(
     top_files = (BoundedHybridFiles(persistence_limit)
                  if file_persistence_mode == "bounded_scope" else TopKFiles(persistence_limit))
     errors = ScanErrors()
+    last_progress_items = 0
 
     def mark_limited(relative_path: str) -> None:
         parent = relative_path.rpartition("/")[0]
@@ -44,15 +45,22 @@ def scan_fixture(
         if isinstance(event, DirectorySeen):
             aggregator.add_directory(event.relative_path, event.parent)
             result.dirs_seen += 1
-            if on_progress:
+            items_seen = result.files_seen + result.dirs_seen
+            if on_progress and (items_seen <= 32 or items_seen - last_progress_items >= 256):
                 on_progress(result)
+                last_progress_items = items_seen
         elif isinstance(event, FileSeen):
-            aggregator.add_file(event.file.parent, event.file.size_bytes)
-            top_files.add(event.file)
+            aggregator.add_file(event.parent, event.size_bytes)
+            top_files.add_observation(
+                event.name, event.relative_path, event.parent, event.size_bytes,
+                event.mtime_epoch, event.attributes,
+            )
             result.files_seen += 1
-            result.logical_bytes += event.file.size_bytes
-            if on_progress and result.files_seen % 256 == 0:
+            result.logical_bytes += event.size_bytes
+            items_seen = result.files_seen + result.dirs_seen
+            if on_progress and items_seen - last_progress_items >= 256:
                 on_progress(result)
+                last_progress_items = items_seen
         elif isinstance(event, ScanProblem):
             errors.record(event.code, event.relative_path)
             mark_limited(event.relative_path)

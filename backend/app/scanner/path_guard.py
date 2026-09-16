@@ -78,19 +78,41 @@ def validate_scan_root(raw_root: str) -> tuple[Path, str]:
 
 
 def assert_safe_directory(root: Path, path: Path, scope_key: str | None = None) -> None:
-    """Recheck each queued directory without broadening API root authorization."""
+    """Compatibility entry point for validating one queued directory."""
+    approved_root = prepare_scan_root(root, scope_key)
+    assert_safe_queued_directory(approved_root, path)
+
+
+def prepare_scan_root(root: Path, scope_key: str | None = None) -> Path:
+    """Authorize and canonicalize a scan root once before traversal starts."""
+    if scope_key == "system_drive_c" and root != Path("C:\\"):
+        raise InvalidScanRoot("The system drive scope is fixed to C:\\.")
     if scope_key in {"system_drive_c", "current_user_temp"}:
-        if root != Path("C:\\"):
-            if scope_key == "system_drive_c":
-                raise InvalidScanRoot("The system drive scope is fixed to C:\\.")
-        approved_root = root
-    else:
-        approved_root, _ = validate_scan_root(str(root))
+        lexical = _normalized_path(str(root))
+        try:
+            resolved = lexical.resolve(strict=True)
+            if resolved != lexical or not resolved.is_dir() or is_reparse_point(os.lstat(lexical)):
+                raise InvalidScanRoot("Reparse points are not allowed in a scan path.")
+            return resolved
+        except OSError as exc:
+            raise InvalidScanRoot("The scan path is unavailable.") from exc
+    approved, _ = validate_scan_root(str(root))
+    return approved
+
+
+def assert_safe_queued_directory(root: Path, path: Path) -> None:
+    """Recheck one queued directory without repeating root authorization.
+
+    Canonical equality rejects a reparse point in the directory or any ancestor,
+    while relative checks preserve the approved-root boundary.
+    """
     lexical = _normalized_path(str(path))
     try:
-        relative = lexical.relative_to(approved_root)
-        lexical.resolve(strict=True).relative_to(approved_root)
-        _assert_no_reparse(approved_root, relative.parts)
+        lexical.relative_to(root)
+        resolved = lexical.resolve(strict=True)
+        resolved.relative_to(root)
+        if resolved != lexical:
+            raise InvalidScanRoot("Reparse points are not allowed in a scan path.")
     except (OSError, ValueError) as exc:
         if isinstance(exc, InvalidScanRoot):
             raise
