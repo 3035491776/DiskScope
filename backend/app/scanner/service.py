@@ -19,13 +19,17 @@ def scan_fixture(
     on_progress: ProgressCallback | None = None,
     top_k: int = 1000,
     scope_key: str | None = None,
+    file_persistence_mode: str = "top_k",
+    file_persistence_limit: int | None = None,
 ) -> ScanResult:
     """Read approved-root metadata without opening or changing scanned files."""
-    from app.scanner.topk import TopKFiles
+    from app.scanner.topk import BoundedHybridFiles, TopKFiles
 
     result = ScanResult()
     aggregator = DirectoryAggregator()
-    top_files = TopKFiles(top_k)
+    persistence_limit = file_persistence_limit or top_k
+    top_files = (BoundedHybridFiles(persistence_limit)
+                 if file_persistence_mode == "bounded_scope" else TopKFiles(persistence_limit))
     errors = ScanErrors()
 
     def mark_limited(relative_path: str) -> None:
@@ -68,7 +72,16 @@ def scan_fixture(
         result.cancelled = True
         result.limited_directories.add("")
     result.directories = aggregator.finish()
-    result.top_files = top_files.sorted_files()
+    result.top_files = (top_files.selected_files(result.files_seen)
+                        if isinstance(top_files, BoundedHybridFiles) else top_files.sorted_files())
+    result.file_persistence_mode = file_persistence_mode
+    result.file_persistence_limit = persistence_limit
+    result.persisted_file_count = len(result.top_files)
+    result.observed_file_count = result.files_seen
+    result.file_metadata_coverage = (
+        "complete" if file_persistence_mode == "bounded_scope" and result.files_seen <= persistence_limit
+        else "limited"
+    )
     result.errors_count = errors.total_count
     result.errors = errors.summary()
     if on_progress:

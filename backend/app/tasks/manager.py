@@ -46,6 +46,8 @@ class ScanTask:
     scope_key: str = ""
     scope_label: str = ""
     policy_mode: str = "standard"
+    file_persistence_mode: str = "top_k"
+    file_persistence_limit: int = 1000
     state: str = "queued"
     phase: str = "queued"
     created_at: str = field(default_factory=utc_now)
@@ -97,6 +99,11 @@ class ScanTask:
                 "path_too_long_count": self.result.errors.get("PATH_TOO_LONG", {}).get("count", 0) if self.result else 0,
                 "other_io_error_count": self.result.errors.get("IO_ERROR", {}).get("count", 0) if self.result else 0,
             },
+            "file_persistence_mode": self.result.file_persistence_mode if self.result else None,
+            "file_persistence_limit": self.result.file_persistence_limit if self.result else None,
+            "persisted_file_count": self.result.persisted_file_count if self.result else 0,
+            "observed_file_count": self.result.observed_file_count if self.result else self.files_seen,
+            "file_metadata_coverage": self.result.file_metadata_coverage if self.result else None,
             "errors": self.result.errors if self.result else {},
             "exclusions": self.result.exclusions if self.result else {},
             "metrics": (self.monitor.snapshot(self.files_seen, elapsed_ms)
@@ -129,6 +136,8 @@ class ScanTaskManager:
             task = ScanTask(
                 scan_id=str(uuid.uuid4()), root=scope.result_root_label, root_path=scope.root,
                 scope_key=scope.scope_key, scope_label=scope.label, policy_mode=scope.policy.mode,
+                file_persistence_mode=scope.file_persistence_mode,
+                file_persistence_limit=scope.file_persistence_limit,
             )
             self._tasks[task.scan_id] = task
             self._prune_finished()
@@ -169,8 +178,16 @@ class ScanTaskManager:
                 task.errors_count = result.errors_count
 
         try:
-            if task.scope_key == "system_drive_c":
-                result = scan_fixture(task.root_path, task.cancel_event, update_progress, scope_key=task.scope_key)
+            if task.scope_key == "current_user_temp":
+                result = scan_fixture(
+                    task.root_path, task.cancel_event, update_progress,
+                    scope_key=task.scope_key,
+                    file_persistence_mode=task.file_persistence_mode,
+                    file_persistence_limit=task.file_persistence_limit,
+                )
+            elif task.scope_key == "system_drive_c":
+                result = scan_fixture(
+                    task.root_path, task.cancel_event, update_progress, scope_key=task.scope_key)
             else:
                 result = scan_fixture(task.root_path, task.cancel_event, update_progress)
             with self._lock:

@@ -2,7 +2,7 @@
 import { computed, ref, watch } from 'vue'
 import EmptyState from '../components/EmptyState.vue'
 import { analyzeSnapshot, createControlledProbe, executeCleanup, getCandidateDetail, getCandidates, getCleanupExecutions, prepareCleanup, prepareControlledProbe } from '../services/api'
-import type { CandidateRun, CandidateSummary, CleanupCandidate, CleanupExecution, CleanupExecutionResult, ControlledProbe, PreparedCleanup, SnapshotSummary } from '../services/api'
+import type { CandidateRun, CandidateSummary, CleanupCandidate, CleanupExecution, CleanupExecutionResult, ControlledProbe, EligibilitySummary, PreparedCleanup, SnapshotSummary } from '../services/api'
 import { useScanStore } from '../stores/scan'
 import { formatBytes, formatLocalTime, formatNumber, formatSeconds } from '../utils/format'
 import { actionLabel, categoryLabel, confidenceLabel, coverageMessage, executionReasonLabel, executionStatus, riskLabel, topKMessage } from '../utils/recommendations'
@@ -11,6 +11,8 @@ const store = useScanStore()
 const latestSnapshot = ref<SnapshotSummary | null>(null)
 const run = ref<CandidateRun | null>(null)
 const summary = ref<CandidateSummary | null>(null)
+const eligibility = ref<EligibilitySummary | null>(null)
+const scopeKey = ref<'system_drive_c' | 'current_user_temp'>('current_user_temp')
 const sections = ref<{ risk: CleanupCandidate['risk_level']; items: CleanupCandidate[]; total: number }[]>([])
 const selected = ref<CleanupCandidate | null>(null)
 const members = ref<CleanupCandidate[]>([])
@@ -49,24 +51,25 @@ async function loadRecommendations(autoAnalyze = true) {
   loading.value = true
   error.value = ''
   try {
-    let initial = await getCandidates({ risk: 'review', category: category.value, confidence: confidence.value })
+    let initial = await getCandidates({ scopeKey: scopeKey.value, risk: 'review', category: category.value, confidence: confidence.value })
     if (request !== requestNumber) return
     latestSnapshot.value = initial.latest_snapshot
     if (autoAnalyze && initial.latest_snapshot && initial.run?.snapshot_id !== initial.latest_snapshot.snapshot_id) {
       analyzing.value = true
       await analyzeSnapshot(initial.latest_snapshot.snapshot_id)
-      initial = await getCandidates({ risk: 'review', category: category.value, confidence: confidence.value })
+      initial = await getCandidates({ scopeKey: scopeKey.value, risk: 'review', category: category.value, confidence: confidence.value })
       analyzing.value = false
     }
     if (request !== requestNumber) return
     run.value = initial.run
     summary.value = initial.summary
+    eligibility.value = initial.eligibility_summary
     if (!initial.run || initial.run.snapshot_id !== initial.latest_snapshot?.snapshot_id) {
       sections.value = []
       return
     }
     const risks = ['low', 'high', 'protected'] as const
-    const others = await Promise.all(risks.map(risk => getCandidates({ risk, category: category.value, confidence: confidence.value })))
+    const others = await Promise.all(risks.map(risk => getCandidates({ scopeKey: scopeKey.value, risk, category: category.value, confidence: confidence.value })))
     if (request !== requestNumber) return
     sections.value = [
       { risk: 'review', items: initial.items, total: initial.total },
@@ -88,7 +91,7 @@ async function openDetail(item: CleanupCandidate) {
   detailError.value = ''
   detailLoading.value = true
   try {
-    const result = await getCandidateDetail(item.candidate_id)
+    const result = await getCandidateDetail(item.candidate_id, scopeKey.value)
     selected.value = result.candidate
     members.value = result.members
   } catch (cause) {
@@ -200,25 +203,34 @@ async function recycleProbeTest() {
 watch(() => store.sessionReady, ready => { if (ready) void loadRecommendations() }, { immediate: true })
 watch(() => store.sessionReady, ready => { if (ready) void loadExecutionHistory() }, { immediate: true })
 watch([category, confidence], () => { if (store.sessionReady) void loadRecommendations(false) })
+watch(scopeKey, () => {
+  category.value = ''
+  confidence.value = ''
+  selected.value = null
+  prepared.value = null
+  void loadRecommendations()
+})
 </script>
 
 <template>
   <div class="page-heading"><div><p class="eyebrow">RECOMMENDATIONS / SAVED SNAPSHOT</p><h1>空间建议</h1><p class="page-description">解释哪些项目值得关注，以及识别依据与处理风险。</p></div><span class="read-only-chip">严格门禁 · 单文件回收站</span></div>
   <p class="coverage-note">历史快照不是处理授权。只有当前用户 LocalAppData\Temp 中至少 30 天未修改、达到 1 MiB 的高置信低风险临时普通文件，才能逐个重新验证并由您确认移入回收站。</p>
-  <section class="panel"><div class="panel-heading"><div><p class="eyebrow">SOURCE</p><h2>Windows C: · 基于已保存扫描结果</h2></div><button type="button" class="text-button" :disabled="loading || !latestSnapshot" @click="loadRecommendations(true)">重新分析已保存快照</button></div>
+  <section class="panel"><div class="panel-heading"><div><p class="eyebrow">SOURCE</p><h2>{{ scopeKey === 'current_user_temp' ? '当前用户临时文件' : 'Windows C:' }} · 基于已保存扫描结果</h2></div><button type="button" class="text-button" :disabled="loading || !latestSnapshot" @click="loadRecommendations(true)">重新分析已保存快照</button></div>
+    <div class="scan-controls"><label>分析范围<select v-model="scopeKey"><option value="current_user_temp">当前用户临时文件</option><option value="system_drive_c">Windows C:</option></select></label></div>
     <p v-if="!store.sessionReady" class="inline-note">请从 start.bat 打开本地页面，以查看已保存的扫描结果。</p>
     <template v-else><div class="recommendation-meta"><span>扫描时间：{{ formatLocalTime(latestSnapshot?.completed_at) }}</span><span>规则版本：{{ run?.rule_version ?? 'rules-v1.0.0' }}</span><span>分析范围：大文件 Top-K + 目录聚合</span><span v-if="run">分析耗时：{{ formatSeconds(run.duration_ms) }}</span></div>
       <p v-if="coverageMessage(latestSnapshot?.coverage)" class="coverage-note">{{ coverageMessage(latestSnapshot?.coverage) }}</p>
-      <p class="inline-note">{{ topKMessage }}</p>
+      <p class="inline-note">{{ scopeKey === 'current_user_temp' ? `文件元数据 ${latestSnapshot?.persisted_file_count ?? 0} / ${latestSnapshot?.observed_file_count ?? 0}；${(latestSnapshot?.persisted_file_count ?? 0) === (latestSnapshot?.observed_file_count ?? 0) ? '覆盖完整。' : '已达到有界持久化上限，结果覆盖受限。'}` : topKMessage }}</p>
     </template>
   </section>
   <p v-if="error" class="panel inline-error" role="alert">{{ error }}</p>
-  <p v-if="analyzing" class="panel inline-note" role="status">正在分析已保存的快照元数据；不会重新扫描 C 盘…</p>
+  <p v-if="analyzing" class="panel inline-note" role="status">正在分析已保存的快照元数据；不会重新扫描磁盘，也不会执行处理…</p>
   <p v-else-if="loading" class="panel inline-note" role="status">正在读取已保存的建议…</p>
-  <EmptyState v-else-if="store.sessionReady && !latestSnapshot" title="尚无 C 盘快照" description="完成一次 C 盘只读扫描后，这里会分析已保存结果；本页不会启动扫描。" />
+  <EmptyState v-else-if="store.sessionReady && !latestSnapshot" :title="scopeKey === 'current_user_temp' ? '尚无当前用户 Temp 快照' : '尚无 C 盘快照'" description="完成对应范围的只读扫描后，这里会分析已保存结果；本页不会启动扫描。" />
   <EmptyState v-else-if="store.sessionReady && !currentRun" title="等待快照分析" description="最新 C 盘快照已保存，但候选尚未生成。可重新分析已保存快照，无需扫描磁盘。" />
   <template v-else-if="currentRun && summary">
-    <div class="metric-grid"><div class="metric-card"><span>值得关注的空间</span><strong>{{ formatBytes(summary.candidate_bytes) }}</strong><small>仅计入需确认/低风险的 Top-K 文件；不是可释放空间</small></div><div class="metric-card"><span>候选项目</span><strong>{{ formatNumber(summary.candidate_count) }}</strong><small>分组不重复计数成员</small></div><div class="metric-card"><span>需要人工确认</span><strong>{{ formatNumber(summary.review_count) }}</strong><small>规则建议复核</small></div><div class="metric-card"><span>受保护项目</span><strong>{{ formatNumber(summary.protected_count) }}</strong><small>不计入值得关注空间</small></div></div>
+    <div class="metric-grid"><div class="metric-card"><span>值得关注的空间</span><strong>{{ formatBytes(summary.candidate_bytes) }}</strong><small>候选元数据统计，不是可释放空间</small></div><div class="metric-card"><span>候选项目</span><strong>{{ formatNumber(summary.candidate_count) }}</strong><small>分组不重复计数成员</small></div><div class="metric-card"><span>符合 M6.2 门禁</span><strong>{{ formatNumber(eligibility?.eligible_count) }}</strong><small>{{ formatBytes(eligibility?.eligible_bytes) }} · 仅只读评估</small></div><div class="metric-card"><span>需要人工确认</span><strong>{{ formatNumber(summary.review_count) }}</strong><small>规则建议复核</small></div><div class="metric-card"><span>受保护项目</span><strong>{{ formatNumber(summary.protected_count) }}</strong><small>不计入值得关注空间</small></div></div>
+    <p v-if="eligibility?.eligible_count" class="coverage-note">发现符合 USER_TEMP_STALE_FILE_V1 静态与历史元数据条件的真实候选。DiskScope 不会自动准备或执行，请先人工检查。</p>
     <section class="panel recommendation-filters"><div class="panel-heading"><div><p class="eyebrow">FILTER</p><h2>筛选识别结果</h2></div></div><div class="scan-controls"><label>类型<select v-model="category"><option value="">全部类型</option><option v-for="item in categories" :key="item" :value="item">{{ categoryLabel(item) }}</option></select></label><label>识别置信度<select v-model="confidence"><option value="">全部置信度</option><option value="high">高</option><option value="medium">中</option><option value="low">低</option></select></label></div></section>
     <section v-for="section in sections" :key="section.risk" class="panel recommendation-section"><div class="panel-heading"><div><p class="eyebrow">{{ section.risk.toUpperCase() }}</p><h2>{{ sectionTitles[section.risk] }}</h2></div><span class="subtle-label">{{ section.total }} 项<span v-if="section.total > section.items.length"> · 显示前 {{ section.items.length }} 项</span></span></div>
       <p v-if="!section.items.length" class="inline-note">此范围暂无匹配项目。</p>

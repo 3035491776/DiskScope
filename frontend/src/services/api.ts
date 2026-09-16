@@ -74,6 +74,11 @@ export interface ScanStatus {
   snapshot_status: 'not_applicable' | 'pending' | 'saved' | 'failed'
   snapshot_id: string | null
   snapshot_error_code: string | null
+  file_persistence_mode: 'top_k' | 'bounded_scope' | null
+  file_persistence_limit: number | null
+  persisted_file_count: number
+  observed_file_count: number
+  file_metadata_coverage: 'complete' | 'limited' | null
 }
 
 export interface SnapshotSummary {
@@ -87,6 +92,10 @@ export interface SnapshotSummary {
   error_count: number
   skipped_count: number
   coverage: 'complete' | 'limited'
+  file_persistence_mode: 'top_k' | 'bounded_scope'
+  file_persistence_limit: number
+  persisted_file_count: number
+  observed_file_count: number
 }
 
 export interface DirectoryChange {
@@ -216,15 +225,15 @@ export async function establishSession(): Promise<boolean> {
   return state.ready
 }
 
-export type ScanTarget = 'fixture' | 'project' | 'c_drive'
+export type ScanTarget = 'fixture' | 'project' | 'c_drive' | 'user_temp'
 export const PROJECT_WORKSPACE_PATH = 'D:\\Artilius\\Codex\\Windows-C-clear'
 
 export function createScan(target: ScanTarget = 'fixture'): Promise<{ scan_id: string; state: string }> {
   return apiJson('/api/v1/scans', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(target === 'c_drive'
-      ? { scope_key: 'system_drive_c', confirmed_readonly: true }
+    body: JSON.stringify(target === 'c_drive' || target === 'user_temp'
+      ? { scope_key: target === 'c_drive' ? 'system_drive_c' : 'current_user_temp', confirmed_readonly: target === 'c_drive' }
       : { root: target === 'project' ? PROJECT_WORKSPACE_PATH : 'tests/fixtures/sample_disk' }),
   })
 }
@@ -280,11 +289,16 @@ export interface ResolvedResult {
     duration_seconds: number
     error_count: number
     skipped_count: number
+    file_persistence_mode: 'top_k' | 'bounded_scope'
+    file_persistence_limit: number
+    persisted_file_count: number
+    observed_file_count: number
+    file_metadata_coverage: 'complete' | 'limited'
   } | null
 }
 
 export const scopeForTarget: Record<ScanTarget, string> = {
-  fixture: 'fixture_sample', project: 'project_workspace', c_drive: 'system_drive_c',
+  fixture: 'fixture_sample', project: 'project_workspace', c_drive: 'system_drive_c', user_temp: 'current_user_temp',
 }
 
 export function getLatestResult(target: ScanTarget): Promise<ResolvedResult> {
@@ -482,13 +496,17 @@ export interface CandidateRun {
   created_at: string
   status: 'completed'
   duration_ms: number
-  analysis_coverage: 'top_k_and_directories'
+  analysis_coverage: 'top_k_and_directories' | 'bounded_scope_files'
   scope_key: string
   scope_label: string
   scan_completed_at: string
   snapshot_coverage: 'complete' | 'limited'
   error_count: number
   skipped_count: number
+  file_persistence_mode: 'top_k' | 'bounded_scope'
+  file_persistence_limit: number
+  persisted_file_count: number
+  observed_file_count: number
 }
 
 export interface CandidateSummary {
@@ -509,10 +527,18 @@ export interface CandidateListing {
   summary: CandidateSummary | null
   items: CleanupCandidate[]
   total: number
+  eligibility_summary: EligibilitySummary
 }
 
-export function getCandidates(filters: { category?: string; risk?: string; confidence?: string; limit?: number } = {}): Promise<CandidateListing> {
-  const query = new URLSearchParams({ scope_key: 'system_drive_c', limit: String(filters.limit ?? 100) })
+export interface EligibilitySummary {
+  eligible_count: number
+  eligible_bytes: number
+  policy_rule_id: 'USER_TEMP_STALE_FILE_V1'
+  items: Array<Pick<CleanupCandidate, 'candidate_id' | 'relative_path' | 'display_path' | 'logical_bytes' | 'category' | 'risk_level' | 'confidence'> & { snapshot_mtime: string | null }>
+}
+
+export function getCandidates(filters: { scopeKey?: string; category?: string; risk?: string; confidence?: string; limit?: number } = {}): Promise<CandidateListing> {
+  const query = new URLSearchParams({ scope_key: filters.scopeKey ?? 'system_drive_c', limit: String(filters.limit ?? 100) })
   if (filters.category) query.set('category', filters.category)
   if (filters.risk) query.set('risk', filters.risk)
   if (filters.confidence) query.set('confidence', filters.confidence)
@@ -523,6 +549,6 @@ export function analyzeSnapshot(snapshotId: string): Promise<{ run: CandidateRun
   return apiJson(`/api/v1/snapshots/${encodeURIComponent(snapshotId)}/analyze`, { method: 'POST' })
 }
 
-export function getCandidateDetail(candidateId: string): Promise<{ candidate: CleanupCandidate; members: CleanupCandidate[] }> {
-  return apiJson(`/api/v1/candidates/${encodeURIComponent(candidateId)}?scope_key=system_drive_c`)
+export function getCandidateDetail(candidateId: string, scopeKey = 'system_drive_c'): Promise<{ candidate: CleanupCandidate; members: CleanupCandidate[] }> {
+  return apiJson(`/api/v1/candidates/${encodeURIComponent(candidateId)}?scope_key=${encodeURIComponent(scopeKey)}`)
 }

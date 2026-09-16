@@ -19,7 +19,7 @@ const error = ref('')
 const compareError = ref('')
 let loadSequence = 0
 let compareSequence = 0
-const scopeKey = computed(() => store.selectedTarget === 'c_drive' ? 'system_drive_c' : store.selectedTarget === 'project' ? 'project_workspace' : 'fixture_sample')
+const scopeKey = computed(() => store.selectedTarget === 'c_drive' ? 'system_drive_c' : store.selectedTarget === 'user_temp' ? 'current_user_temp' : store.selectedTarget === 'project' ? 'project_workspace' : 'fixture_sample')
 
 async function loadHistory() {
   const sequence = ++loadSequence
@@ -82,7 +82,7 @@ const hasFileChanges = computed(() => fileGroups.value.some(group => group.items
 <template>
   <div class="page-heading"><div><p class="eyebrow">HISTORY / CHANGE</p><h1>历史与变化</h1><p class="page-description">比较同一固定范围的两次扫描，查看空间增长与 Top 大文件变化。</p></div><span class="read-only-chip">只读历史</span></div>
   <section class="panel"><div class="panel-heading"><div><p class="eyebrow">SCAN SCOPE</p><h2>当前扫描范围 · {{ targetName(store.selectedTarget) }}</h2></div><button type="button" class="text-button" @click="loadHistory">刷新历史</button></div>
-    <div class="scan-controls"><label for="history-scope">查看范围</label><select id="history-scope" v-model="store.selectedTarget"><option value="fixture">Fixture Sample</option><option value="project">Project Workspace</option><option value="c_drive">Windows C:</option></select></div>
+    <div class="scan-controls"><label for="history-scope">查看范围</label><select id="history-scope" v-model="store.selectedTarget"><option value="fixture">Fixture Sample</option><option value="project">Project Workspace</option><option value="c_drive">Windows C:</option><option value="user_temp">当前用户临时文件</option></select></div>
     <p class="inline-note">只显示该范围的历史；无法跨范围组合比较。</p>
   </section>
   <p v-if="error" class="panel inline-error history-message" role="alert">{{ error }}</p>
@@ -90,7 +90,7 @@ const hasFileChanges = computed(() => fileGroups.value.some(group => group.items
   <EmptyState v-else-if="snapshots.length === 0" title="暂无历史扫描" :description="historyEmptyMessage(0)" />
   <template v-else>
     <section class="panel table-panel"><div class="panel-heading"><div><p class="eyebrow">SNAPSHOTS</p><h2>历史扫描</h2></div><span class="subtle-label">最近 {{ snapshots.length }} 次 · 每范围保留 20 次</span></div>
-      <div class="table-scroll"><table><thead><tr><th>完成时间</th><th>逻辑空间</th><th>文件</th><th>目录</th><th>覆盖</th></tr></thead><tbody><tr v-for="snapshot in snapshots" :key="snapshot.snapshot_id"><td class="strong-cell">{{ formatLocalTime(snapshot.completed_at) }}</td><td>{{ formatBytes(snapshot.total_bytes) }}</td><td>{{ formatNumber(snapshot.file_count) }}</td><td>{{ formatNumber(snapshot.directory_count) }}</td><td>{{ snapshot.coverage === 'limited' ? '覆盖受限' : '完整' }}</td></tr></tbody></table></div>
+      <div class="table-scroll"><table><thead><tr><th>完成时间</th><th>逻辑空间</th><th>文件</th><th>目录</th><th>覆盖</th></tr></thead><tbody><tr v-for="snapshot in snapshots" :key="snapshot.snapshot_id"><td class="strong-cell">{{ formatLocalTime(snapshot.completed_at) }}</td><td>{{ formatBytes(snapshot.total_bytes) }}</td><td>{{ formatNumber(snapshot.file_count) }}</td><td>{{ formatNumber(snapshot.directory_count) }}</td><td>{{ snapshot.coverage === 'limited' ? '目录覆盖受限' : snapshot.persisted_file_count < snapshot.observed_file_count ? `文件元数据 ${formatNumber(snapshot.persisted_file_count)} / ${formatNumber(snapshot.observed_file_count)}` : '完整' }}</td></tr></tbody></table></div>
     </section>
     <EmptyState v-if="snapshots.length === 1" title="等待第二次扫描" :description="historyEmptyMessage(1)" />
     <template v-else>
@@ -107,7 +107,7 @@ const hasFileChanges = computed(() => fileGroups.value.some(group => group.items
           <section class="panel table-panel"><div class="panel-heading"><div><p class="eyebrow">BY SPACE</p><h2>增长空间最多</h2></div><span class="subtle-label">按增加字节排序</span></div><p v-if="comparison.growth_by_bytes.length === 0" class="inline-note">没有目录空间增长。</p><div v-else class="table-scroll"><table><thead><tr><th>目录</th><th>变化</th><th>新增空间</th></tr></thead><tbody><tr v-for="item in comparison.growth_by_bytes" :key="item.relative_path"><td class="path-cell" :title="item.relative_path">{{ item.relative_path }}</td><td>{{ changeLabel(item) }}</td><td class="strong-cell">{{ formatDeltaBytes(item.delta_bytes) }}</td></tr></tbody></table></div></section>
           <section class="panel table-panel"><div class="panel-heading"><div><p class="eyebrow">BY RATE</p><h2>增长比例最高</h2></div><span class="subtle-label">基准至少 256 KiB · 目标至少 1 MiB</span></div><p v-if="comparison.growth_by_ratio.length === 0" class="inline-note">没有达到门槛的目录增长。</p><div v-else class="table-scroll"><table><thead><tr><th>目录</th><th>增幅</th><th>新增空间</th></tr></thead><tbody><tr v-for="item in comparison.growth_by_ratio" :key="item.relative_path"><td class="path-cell" :title="item.relative_path">{{ item.relative_path }}</td><td class="strong-cell">{{ formatDeltaPercent(item.delta_ratio) }}</td><td>{{ formatDeltaBytes(item.delta_bytes) }}</td></tr></tbody></table></div></section>
         </div>
-        <section class="panel"><div class="panel-heading"><div><p class="eyebrow">TOP-K VIEW</p><h2>大文件变化</h2></div></div><p class="inline-note">基于 Top 大文件快照，不代表全量文件变化。“不再出现”可能只是跌出 Top-K，并不表示物理删除。</p>
+        <section class="panel"><div class="panel-heading"><div><p class="eyebrow">FILE METADATA VIEW</p><h2>文件变化</h2></div></div><p class="inline-note">{{ scopeKey === 'current_user_temp' ? '基于有界的最大与最旧文件元数据；覆盖受限时不代表全部文件变化。' : '基于 Top 大文件快照，不代表全量文件变化。' }}“不再出现”可能只是跌出持久化选择，并不表示物理删除。</p>
           <p v-if="!hasFileChanges" class="inline-note">没有 Top 大文件变化。</p><div v-else class="history-file-groups"><div v-for="group in fileGroups" :key="group.title" v-show="group.items.length"><h3>{{ group.title }}</h3><div class="table-scroll"><table><thead><tr><th>文件</th><th>变化</th><th>目标大小</th></tr></thead><tbody><tr v-for="file in group.items" :key="file.relative_path"><td class="path-cell" :title="file.relative_path">{{ file.relative_path }}</td><td>{{ formatDeltaBytes(file.delta_bytes) }}</td><td>{{ formatBytes(file.target_bytes) }}</td></tr></tbody></table></div></div></div>
         </section>
       </template>

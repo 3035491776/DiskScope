@@ -35,6 +35,23 @@ def _add_execution_policy(item: dict[str, object], scope_key: str) -> None:
     }
 
 
+def _eligibility_summary(scope_key: str) -> dict[str, object]:
+    policy = ExecutionPolicyEngine()
+    eligible = []
+    for item in candidate_store.execution_candidates(scope_key):
+        if not policy.discovery_reasons(item, scope_key, item.get("snapshot_mtime")):
+            eligible.append(item)
+    return {
+        "eligible_count": len(eligible),
+        "eligible_bytes": sum(int(item["logical_bytes"]) for item in eligible),
+        "policy_rule_id": "USER_TEMP_STALE_FILE_V1",
+        "items": [{key: item.get(key) for key in (
+            "candidate_id", "relative_path", "display_path", "logical_bytes", "category",
+            "risk_level", "confidence", "snapshot_mtime",
+        )} for item in eligible[:10]],
+    }
+
+
 def _error(exc: Exception) -> HTTPException:
     if isinstance(exc, SnapshotStoreError):
         return HTTPException(status_code=503, detail=exc.code)
@@ -53,6 +70,7 @@ def list_candidates(
         listing = candidate_store.list_latest(scope_key, category, risk, confidence, limit)
         for item in listing["items"]:
             _add_execution_policy(item, scope_key)
+        listing["eligibility_summary"] = _eligibility_summary(scope_key)
         return listing
     except (SnapshotStoreError, InvalidCandidateScope) as exc:
         raise _error(exc) from exc

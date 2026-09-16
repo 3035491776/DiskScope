@@ -4,9 +4,12 @@ from __future__ import annotations
 
 from collections import defaultdict
 from datetime import datetime
+from pathlib import PureWindowsPath
 from typing import Iterable, Mapping
 
-from app.intelligence.rules import CandidateRule, GIB, MIB, RULES, RULE_VERSION
+from app.intelligence.rules import (
+    CandidateRule, GIB, MIB, RULES, RULE_VERSION, SCOPED_USER_TEMP_RULES,
+)
 
 
 def path_parts(relative_path: str) -> tuple[str, ...]:
@@ -50,9 +53,13 @@ def size_label(size: int) -> str:
     return f"逻辑大小约 {size / MIB:.1f} MiB"
 
 
-def display_path(scope_key: str, relative_path: str) -> str:
+def display_path(scope_key: str, relative_path: str, root_path: str = "") -> str:
     normalized = relative_path.replace("/", "\\")
-    return f"C:\\{normalized}" if scope_key == "system_drive_c" else normalized
+    if scope_key == "system_drive_c":
+        return f"C:\\{normalized}"
+    if scope_key == "current_user_temp":
+        return str(PureWindowsPath(root_path) / PureWindowsPath(normalized))
+    return normalized
 
 
 class RuleEngine:
@@ -64,16 +71,20 @@ class RuleEngine:
             kind: tuple(rule for rule in self.rules if rule.object_type == kind)
             for kind in ("file", "directory")
         }
+        self.scoped_user_temp_rules = SCOPED_USER_TEMP_RULES
 
     def classify(self, row: Mapping[str, object], object_type: str,
                  snapshot: Mapping[str, object]) -> dict[str, object] | None:
         path = str(row["relative_path"])
         parts = path_parts(path)
         size = int(row["size_bytes"] if object_type == "file" else row["subtree_bytes"])
-        if not parts or snapshot["scope_key"] != "system_drive_c":
+        scope_key = str(snapshot["scope_key"])
+        if not parts or scope_key not in {"system_drive_c", "current_user_temp"}:
             return None
         age = age_days(str(row["mtime"]), str(snapshot["completed_at"])) if object_type == "file" else None
-        match = next((rule for rule in self.by_type[object_type] if rule.matches(parts, object_type, size, age)), None)
+        rules = (self.scoped_user_temp_rules if scope_key == "current_user_temp" and object_type == "file"
+                 else self.by_type[object_type] if scope_key == "system_drive_c" else ())
+        match = next((rule for rule in rules if rule.matches(parts, object_type, size, age)), None)
         if match is None:
             return None
         evidence = [match.summary, size_label(size)]
@@ -88,7 +99,7 @@ class RuleEngine:
         return {
             "candidate_id": "", "scope_key": str(snapshot["scope_key"]),
             "snapshot_id": str(snapshot["snapshot_id"]), "relative_path": path,
-            "display_path": display_path(str(snapshot["scope_key"]), path),
+            "display_path": display_path(scope_key, path, str(snapshot.get("root_path", ""))),
             "object_type": object_type, "logical_bytes": size,
             "category": match.category, "risk_level": match.risk_level,
             "confidence": match.confidence, "reason_code": match.reason_code,
@@ -125,7 +136,7 @@ class RuleEngine:
             group = {
                 "candidate_id": "", "scope_key": str(snapshot["scope_key"]),
                 "snapshot_id": str(snapshot["snapshot_id"]), "relative_path": parent,
-                "display_path": display_path(str(snapshot["scope_key"]), parent),
+                "display_path": display_path(str(snapshot["scope_key"]), parent, str(snapshot.get("root_path", ""))),
                 "object_type": "group", "logical_bytes": total,
                 "category": "crash_dump", "risk_level": "review", "confidence": "high",
                 "reason_code": "CRASH_DUMP_GROUP_IN_SERVICE_TEMP",

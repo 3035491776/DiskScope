@@ -12,7 +12,7 @@ from app.intelligence.rules import RULE_VERSION
 from app.snapshots.store import SUMMARY_COLUMNS, SnapshotNotFound, SnapshotStore, snapshot_store
 
 
-ALLOWED_SCOPES = frozenset({"fixture_sample", "project_workspace", "system_drive_c"})
+ALLOWED_SCOPES = frozenset({"fixture_sample", "project_workspace", "system_drive_c", "current_user_temp"})
 ANALYSIS_COVERAGE = "top_k_and_directories"
 RISK_ORDER = {"review": 0, "low": 1, "high": 2, "protected": 3}
 
@@ -40,7 +40,7 @@ class CandidateStore:
     def analyze_snapshot(self, snapshot_id: str) -> dict[str, object]:
         with self.snapshots._connection() as connection:
             snapshot_row = connection.execute(
-                f"SELECT {SUMMARY_COLUMNS} FROM scan_snapshots WHERE id = ?", (snapshot_id,),
+                f"SELECT {SUMMARY_COLUMNS}, root_path FROM scan_snapshots WHERE id = ?", (snapshot_id,),
             ).fetchone()
             if snapshot_row is None:
                 raise SnapshotNotFound(snapshot_id)
@@ -81,7 +81,8 @@ class CandidateStore:
                     (id, snapshot_id, rule_version, created_at, status, duration_ms, analysis_coverage)
                     VALUES (?, ?, ?, ?, 'completed', ?, ?)""", (
                     run_id, snapshot_id, RULE_VERSION, datetime.now(timezone.utc).isoformat(),
-                    duration_ms, ANALYSIS_COVERAGE,
+                    duration_ms, ("bounded_scope_files" if snapshot["file_persistence_mode"] == "bounded_scope"
+                                  else ANALYSIS_COVERAGE),
                 ))
                 connection.executemany("""INSERT INTO cleanup_candidates
                     (candidate_id, run_id, relative_path, display_path, object_type,
@@ -144,7 +145,9 @@ class CandidateStore:
         row = connection.execute("""SELECT r.id AS run_id, r.snapshot_id, r.rule_version,
             r.created_at, r.status, r.duration_ms, r.analysis_coverage,
             s.scope_key, s.scope_label, s.completed_at AS scan_completed_at,
-            s.coverage AS snapshot_coverage, s.error_count, s.skipped_count
+            s.coverage AS snapshot_coverage, s.error_count, s.skipped_count,
+            s.file_persistence_mode, s.file_persistence_limit,
+            s.persisted_file_count, s.observed_file_count
             FROM candidate_runs r JOIN scan_snapshots s ON s.id = r.snapshot_id
             WHERE r.id = ?""", (run_id,)).fetchone()
         if row is None:
@@ -235,6 +238,25 @@ class CandidateStore:
                     (candidate_id,),
                 )]
             return {"candidate": item, "members": members}
+
+    def execution_candidates(self, scope_key: str) -> list[dict[str, object]]:
+        """Return latest persisted leaf metadata for read-only policy evaluation."""
+        validate_scope(scope_key)
+        with self.snapshots._connection() as connection:
+            run = connection.execute("""SELECT r.id FROM candidate_runs r
+                JOIN scan_snapshots s ON s.id = r.snapshot_id
+                WHERE s.scope_key = ? AND r.status = 'completed'
+                ORDER BY s.completed_at DESC, r.created_at DESC, r.id DESC LIMIT 1""",
+                (scope_key,)).fetchone()
+            if run is None:
+                return []
+            return [dict(row) for row in connection.execute("""SELECT c.*,
+                f.mtime AS snapshot_mtime FROM cleanup_candidates c
+                JOIN candidate_runs r ON r.id = c.run_id
+                LEFT JOIN file_snapshots f ON f.snapshot_id = r.snapshot_id
+                    AND f.relative_path = c.relative_path
+                WHERE c.run_id = ? AND c.group_id IS NULL AND c.object_type = 'file'
+                ORDER BY c.logical_bytes DESC, c.relative_path""", (run["id"],))]
 
 
 candidate_store = CandidateStore()

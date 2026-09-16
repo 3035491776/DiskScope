@@ -72,15 +72,23 @@ class ExecutionPolicyEngine:
         parts = _parts(path)
         relative = str(candidate.get("relative_path", ""))
         reasons: list[str] = []
-        if scope_key != "system_drive_c":
+        if scope_key not in {"system_drive_c", "current_user_temp"}:
             reasons.append("EXECUTION_SCOPE_BLOCKED")
-        if parts is None or not relative or ntpath.join("C:\\", relative.replace("/", "\\")).casefold() != path.casefold():
+        relative_parts = tuple(relative.split("/")) if relative else ()
+        valid_relative = bool(relative_parts) and all(
+            part not in {"", ".", ".."} and "\\" not in part and ":" not in part
+            for part in relative_parts
+        )
+        temp_parts = self._temp_parts()
+        expected_root = ("C:\\" if scope_key == "system_drive_c" else
+                         ntpath.join("C:\\", *temp_parts) if temp_parts else "")
+        expected_path = ntpath.join(expected_root, *relative_parts) if valid_relative and expected_root else ""
+        if parts is None or not valid_relative or expected_path.casefold() != path.casefold():
             reasons.append("EXECUTION_PATH_BLOCKED")
         if parts and (parts[0] in PROTECTED_ROOTS or parts[-1] in PROTECTED_NAMES):
             reasons.append("EXECUTION_PROTECTED_PATH")
         if candidate.get("object_type") != "file":
             reasons.append("DIRECTORY_EXECUTION_NOT_SUPPORTED")
-        temp_parts = self._temp_parts()
         if (not parts or not temp_parts or parts[:len(temp_parts)] != temp_parts or
                 len(parts) <= len(temp_parts)):
             reasons.append("EXECUTION_CURRENT_USER_TEMP_ONLY")

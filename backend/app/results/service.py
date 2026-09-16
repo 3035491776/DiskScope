@@ -9,7 +9,7 @@ from app.snapshots.store import SnapshotNotFound, SnapshotStore, SnapshotStoreEr
 from app.tasks.manager import ResultNotReady, ScanNotFound, ScanTaskManager, scan_tasks
 
 
-ALLOWED_SCOPES = frozenset({"fixture_sample", "project_workspace", "system_drive_c"})
+ALLOWED_SCOPES = frozenset({"fixture_sample", "project_workspace", "system_drive_c", "current_user_temp"})
 
 
 class InvalidResultScope(ValueError):
@@ -39,6 +39,11 @@ class ResultResolver:
                     "total_bytes": live["logical_bytes"], "file_count": live["files_seen"],
                     "directory_count": live["dirs_seen"], "duration_seconds": live["elapsed_ms"] / 1000,
                     "error_count": live["errors_count"], "skipped_count": live["skipped_count"],
+                    "file_persistence_mode": live["file_persistence_mode"],
+                    "file_persistence_limit": live["file_persistence_limit"],
+                    "persisted_file_count": live["persisted_file_count"],
+                    "observed_file_count": live["observed_file_count"],
+                    "file_metadata_coverage": live["file_metadata_coverage"],
                 },
             }
         try:
@@ -57,6 +62,14 @@ class ResultResolver:
                 "directory_count": item["directory_count"],
                 "duration_seconds": item["duration_seconds"],
                 "error_count": item["error_count"], "skipped_count": item["skipped_count"],
+                "file_persistence_mode": item["file_persistence_mode"],
+                "file_persistence_limit": item["file_persistence_limit"],
+                "persisted_file_count": item["persisted_file_count"],
+                "observed_file_count": item["observed_file_count"],
+                "file_metadata_coverage": (
+                    "complete" if item["persisted_file_count"] == item["observed_file_count"]
+                    else "limited"
+                ),
             },
         }
 

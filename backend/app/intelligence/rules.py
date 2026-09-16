@@ -3,7 +3,7 @@
 from dataclasses import dataclass
 
 
-RULE_VERSION = "rules-v1.0.0"
+RULE_VERSION = "rules-v1.1.0"
 MIB = 1024 * 1024
 GIB = 1024 * MIB
 
@@ -76,3 +76,18 @@ RULES: tuple[CandidateRule, ...] = (
 
 
 RULES = tuple(sorted(RULES, key=lambda rule: (-rule.priority, rule.rule_id)))
+
+# These rules only run for the server-resolved current_user_temp scope. Confidence
+# describes the fixed Temp context; age remains an independent execution check.
+SCOPED_USER_TEMP_RULES = tuple(sorted((
+    CandidateRule("scoped-user-temp-root-file", 100, "file", ("*",),
+                  "temporary_file", "low", "high", "STALE_USER_TEMP_FILE",
+                  "用户临时文件", "位于当前用户固定 Temp 范围的根目录。",
+                  "可由严格执行策略重新验证；扫描本身不会处理文件。",
+                  "review_for_cleanup", MIB),
+    CandidateRule("scoped-user-temp-nested-file", 90, "file", ("...",),
+                  "temporary_file", "high", "high", "NESTED_USER_TEMP_FILE",
+                  "应用临时目录中的文件", "位于当前用户 Temp 的子目录中。",
+                  "子目录可能由安装器或运行中的应用管理，当前策略不处理。",
+                  "manual_review", MIB),
+), key=lambda rule: (-rule.priority, rule.rule_id)))

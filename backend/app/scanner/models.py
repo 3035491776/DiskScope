@@ -35,3 +35,8 @@ class ScanResult:
     exclusions: dict[str, dict[str, object]] = field(default_factory=dict)
     limited_directories: set[str] = field(default_factory=set)
     cancelled: bool = False
+    file_persistence_mode: str = "top_k"
+    file_persistence_limit: int = 1000
+    persisted_file_count: int = 0
+    observed_file_count: int = 0
+    file_metadata_coverage: str = "limited"

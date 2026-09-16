@@ -7,6 +7,10 @@ from app.core.config import PROJECT_ROOT
 from app.scanner.c_drive import C_ROOT, SYSTEM_DRIVE_LABEL, SYSTEM_DRIVE_SCOPE_KEY, validate_system_drive_c
 from app.scanner.path_guard import InvalidScanRoot, validate_scan_root
 from app.scanner.policy import C_DRIVE_SAFE_READONLY, SCAN_POLICY, ScanPolicy
+from app.scanner.user_temp import (
+    CURRENT_USER_TEMP_LABEL, CURRENT_USER_TEMP_PERSISTENCE_LIMIT,
+    CURRENT_USER_TEMP_SCOPE_KEY, resolve_current_user_temp,
+)
 
 
 @dataclass(frozen=True)
@@ -17,6 +21,8 @@ class ScanScope:
     policy: ScanPolicy
     whole_volume: bool = False
     snapshot_enabled: bool = True
+    file_persistence_mode: str = "top_k"
+    file_persistence_limit: int = 1000
 
     @property
     def result_root_label(self) -> str:
@@ -31,6 +37,10 @@ FIXED_SCOPES = {
     "fixture_sample": ScanScope("fixture_sample", "Fixture Sample", PROJECT_ROOT / "tests" / "fixtures" / "sample_disk", SCAN_POLICY),
     "project_workspace": ScanScope("project_workspace", "Project Workspace", PROJECT_ROOT, SCAN_POLICY),
     SYSTEM_DRIVE_SCOPE_KEY: ScanScope(SYSTEM_DRIVE_SCOPE_KEY, SYSTEM_DRIVE_LABEL, C_ROOT, C_DRIVE_SAFE_READONLY, True),
+    CURRENT_USER_TEMP_SCOPE_KEY: ScanScope(
+        CURRENT_USER_TEMP_SCOPE_KEY, CURRENT_USER_TEMP_LABEL, Path(), SCAN_POLICY,
+        file_persistence_mode="bounded_scope", file_persistence_limit=CURRENT_USER_TEMP_PERSISTENCE_LIMIT,
+    ),
 }
 
 
@@ -54,6 +64,12 @@ def resolve_scan_scope(
                 raise CDriveConfirmationRequired("C_DRIVE_CONFIRMATION_REQUIRED")
             validate_system_drive_c()
             return definition
+        if scope_key == CURRENT_USER_TEMP_SCOPE_KEY:
+            return ScanScope(
+                definition.scope_key, definition.label, resolve_current_user_temp(),
+                definition.policy, file_persistence_mode=definition.file_persistence_mode,
+                file_persistence_limit=definition.file_persistence_limit,
+            )
         root, _ = validate_scan_root(str(definition.root))
         return ScanScope(definition.scope_key, definition.label, root, definition.policy)
     if requested_root is None:

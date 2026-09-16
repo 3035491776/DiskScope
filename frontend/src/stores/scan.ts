@@ -42,7 +42,7 @@ export const useScanStore = defineStore('scan', () => {
   }
 
   async function restoreResult() {
-    const targets: ScanTarget[] = scan.value ? [resultTarget.value] : ['c_drive', 'project', 'fixture']
+    const targets: ScanTarget[] = scan.value ? [resultTarget.value] : ['c_drive', 'user_temp', 'project', 'fixture']
     for (const target of targets) {
       await loadResult(target)
       if (!result.value || result.value.source_type !== 'none' || result.value.storage_status === 'unavailable') break
@@ -107,7 +107,8 @@ export const useScanStore = defineStore('scan', () => {
       if (!latest) return
       scan.value = latest
       const target: ScanTarget = latest.scope_key === 'system_drive_c' ? 'c_drive'
-        : latest.scope_key === 'project_workspace' ? 'project' : 'fixture'
+        : latest.scope_key === 'current_user_temp' ? 'user_temp'
+          : latest.scope_key === 'project_workspace' ? 'project' : 'fixture'
       resultTarget.value = target
       selectedTarget.value = target
       if (isActive(latest) || latest.snapshot_status === 'pending') {

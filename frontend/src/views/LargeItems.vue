@@ -40,6 +40,7 @@ watch([() => store.result?.result_id, () => store.result?.source_type, () => sto
 
 function absolutePath(relativePath: string): string {
   if (store.resultTarget === 'c_drive') return `C:\\${relativePath.replaceAll('/', '\\')}`
+  if (store.resultTarget === 'user_temp') return `%LOCALAPPDATA%\\Temp\\${relativePath.replaceAll('/', '\\')}`
   const root = store.resultTarget === 'project'
     ? PROJECT_WORKSPACE_PATH
     : `${PROJECT_WORKSPACE_PATH}\\tests\\fixtures\\sample_disk`

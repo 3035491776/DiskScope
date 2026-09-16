@@ -14,12 +14,14 @@ from app.scanner.models import ScanResult
 from app.snapshots.compare import compare_directories, compare_top_files, delta_ratio
 
 
-SCHEMA_VERSION = 5
+SCHEMA_VERSION = 6
 RETENTION_PER_SCOPE = 20
 DEFAULT_DATABASE = PROJECT_ROOT / "data" / "diskscope.db"
 SUMMARY_COLUMNS = ("id AS snapshot_id, scan_id, scope_key, scope_label, status, "
                    "started_at, completed_at, duration_seconds, total_bytes, file_count, "
-                   "directory_count, error_count, skipped_count, coverage, created_at")
+                   "directory_count, error_count, skipped_count, coverage, "
+                   "file_persistence_mode, file_persistence_limit, persisted_file_count, "
+                   "observed_file_count, created_at")
 
 
 class SnapshotStoreError(RuntimeError):
@@ -43,6 +45,8 @@ def scope_for_root(root_label: str) -> tuple[str, str]:
         return "project_workspace", "Project Workspace"
     if root_label == "tests/fixtures/sample_disk":
         return "fixture_sample", "Fixture Sample"
+    if root_label == "current_user_temp":
+        return "current_user_temp", "当前用户临时文件"
     return f"fixture_path:{root_label}", root_label
 
 
@@ -91,6 +95,9 @@ class SnapshotStore:
                 if version == 4:
                     self._migrate_v4_to_v5(connection)
                     version = 5
+                if version == 5:
+                    self._migrate_v5_to_v6(connection)
+                    version = 6
                 actual = {row[0] for row in connection.execute(
                     "SELECT name FROM sqlite_master WHERE type = 'table'"
                 )}
@@ -99,8 +106,14 @@ class SnapshotStore:
                 )}
                 v5_columns = {"policy_rule_id", "candidate_category", "candidate_risk",
                               "candidate_confidence", "actual_action"}
+                snapshot_v6_columns = {"file_persistence_mode", "file_persistence_limit",
+                                       "persisted_file_count", "observed_file_count"}
+                snapshot_columns = {row[1] for row in connection.execute(
+                    "PRAGMA table_info(scan_snapshots)"
+                )}
                 if (version != SCHEMA_VERSION or "controlled_probes" not in actual or
-                        not v5_columns <= execution_columns):
+                        not v5_columns <= execution_columns or
+                        not snapshot_v6_columns <= snapshot_columns):
                     raise SnapshotStoreError("SNAPSHOT_DATABASE_UNAVAILABLE")
             yield connection
         except sqlite3.Error as exc:
@@ -127,6 +140,10 @@ class SnapshotStore:
                 file_count INTEGER NOT NULL, directory_count INTEGER NOT NULL,
                 error_count INTEGER NOT NULL, skipped_count INTEGER NOT NULL,
                 coverage TEXT NOT NULL CHECK(coverage IN ('complete', 'limited')),
+                file_persistence_mode TEXT NOT NULL,
+                file_persistence_limit INTEGER NOT NULL,
+                persisted_file_count INTEGER NOT NULL,
+                observed_file_count INTEGER NOT NULL,
                 created_at TEXT NOT NULL)""")
             connection.execute("""CREATE TABLE directory_snapshots (
                 id INTEGER PRIMARY KEY, snapshot_id TEXT NOT NULL REFERENCES scan_snapshots(id)
@@ -325,6 +342,34 @@ class SnapshotStore:
             connection.rollback()
             raise
 
+    @staticmethod
+    def _migrate_v5_to_v6(connection: sqlite3.Connection) -> None:
+        try:
+            connection.execute("BEGIN IMMEDIATE")
+            if connection.execute("PRAGMA user_version").fetchone()[0] == 5:
+                existing = {row[1] for row in connection.execute(
+                    "PRAGMA table_info(scan_snapshots)"
+                )}
+                additions = (
+                    ("file_persistence_mode", "TEXT NOT NULL DEFAULT 'top_k'"),
+                    ("file_persistence_limit", "INTEGER NOT NULL DEFAULT 1000"),
+                    ("persisted_file_count", "INTEGER NOT NULL DEFAULT 0"),
+                    ("observed_file_count", "INTEGER NOT NULL DEFAULT 0"),
+                )
+                for name, declaration in additions:
+                    if name not in existing:
+                        connection.execute(
+                            f"ALTER TABLE scan_snapshots ADD COLUMN {name} {declaration}")
+                connection.execute("""UPDATE scan_snapshots SET
+                    persisted_file_count = (SELECT COUNT(*) FROM file_snapshots
+                        WHERE file_snapshots.snapshot_id = scan_snapshots.id),
+                    observed_file_count = file_count""")
+                connection.execute("PRAGMA user_version = 6")
+            connection.commit()
+        except Exception:
+            connection.rollback()
+            raise
+
     def save(self, status: dict[str, object], result: ScanResult, root_path: Path) -> str:
         if status["state"] != "completed" or result.cancelled:
             raise ValueError("Only completed scans may be saved.")
@@ -335,13 +380,19 @@ class SnapshotStore:
         with self._connection() as connection:
             try:
                 connection.execute("BEGIN IMMEDIATE")
-                connection.execute("""INSERT INTO scan_snapshots VALUES
-                    (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""", (
+                connection.execute("""INSERT INTO scan_snapshots
+                    (id, scan_id, scope_key, scope_label, root_path, status, started_at,
+                     completed_at, duration_seconds, total_bytes, file_count, directory_count,
+                     error_count, skipped_count, coverage, file_persistence_mode,
+                     file_persistence_limit, persisted_file_count, observed_file_count, created_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""", (
                     snapshot_id, status["scan_id"], scope_key, scope_label, str(root_path),
                     "completed", status["started_at"], status["finished_at"],
                     int(status["elapsed_ms"]) / 1000, result.logical_bytes,
                     result.files_seen, result.dirs_seen, result.errors_count,
-                    result.skipped_count, coverage, created_at,
+                    result.skipped_count, coverage, result.file_persistence_mode,
+                    result.file_persistence_limit, len(result.top_files), result.files_seen,
+                    created_at,
                 ))
                 connection.executemany("""INSERT INTO directory_snapshots
                     (snapshot_id, relative_path, parent_relative_path, name, direct_bytes,
@@ -460,12 +511,16 @@ class SnapshotStore:
                 "file_count_delta": int(target["file_count"]) - int(base["file_count"]),
                 "directory_count_delta": int(target["directory_count"]) - int(base["directory_count"]),
                 "comparison_coverage_limited": any(
-                    item["coverage"] != "complete" or item["error_count"] or item["skipped_count"]
+                    item["coverage"] != "complete" or item["error_count"] or item["skipped_count"] or
+                    item["persisted_file_count"] < item["observed_file_count"]
                     for item in (base, target)
                 ),
                 **directory_comparison,
                 **file_comparison,
-                "file_comparison_scope": "top_k_only",
+                "file_comparison_scope": (
+                    "bounded_scope_selection" if base["file_persistence_mode"] == "bounded_scope"
+                    else "top_k_only"
+                ),
             }
 
 

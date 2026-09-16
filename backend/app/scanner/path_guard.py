@@ -79,9 +79,10 @@ def validate_scan_root(raw_root: str) -> tuple[Path, str]:
 
 def assert_safe_directory(root: Path, path: Path, scope_key: str | None = None) -> None:
     """Recheck each queued directory without broadening API root authorization."""
-    if scope_key == "system_drive_c":
+    if scope_key in {"system_drive_c", "current_user_temp"}:
         if root != Path("C:\\"):
-            raise InvalidScanRoot("The system drive scope is fixed to C:\\.")
+            if scope_key == "system_drive_c":
+                raise InvalidScanRoot("The system drive scope is fixed to C:\\.")
         approved_root = root
     else:
         approved_root, _ = validate_scan_root(str(root))

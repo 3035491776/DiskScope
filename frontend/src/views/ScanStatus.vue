@@ -13,15 +13,16 @@ const store = useScanStore()
 <template>
   <div class="page-heading"><div><p class="eyebrow">SCAN / STATUS</p><h1>扫描状态</h1><p class="page-description">查看当前或最近一次任务的进度、覆盖情况和资源指标。</p></div></div>
   <section class="panel scan-entry"><div class="panel-heading"><div><p class="eyebrow">CONTROL</p><h2>固定范围扫描</h2></div></div><ScanControls /></section>
-  <EmptyState v-if="!store.scan" title="还没有扫描任务" description="选择 Fixture Sample 或 Project Workspace 并开始扫描；不会自动扫描磁盘。" />
+  <EmptyState v-if="!store.scan" title="还没有扫描任务" description="选择固定范围并主动开始扫描；不会自动扫描磁盘。" />
   <template v-else>
-    <section class="panel status-detail"><div class="panel-heading"><div><p class="eyebrow">CURRENT TASK</p><h2>{{ targetName(store.scan.scope_key === 'system_drive_c' ? 'c_drive' : store.scan.scope_key === 'project_workspace' ? 'project' : 'fixture') }}</h2></div><span class="status-pill" :class="store.scan.state">{{ completionLabel(store.scan) }}</span></div><p v-if="store.scan.scope_key === 'system_drive_c'" class="inline-note">Low-Impact Scan · Metadata Only · 单扫描任务。只读分析可随时取消，不显示未知总量的百分比进度。</p><ScanProgress :scan="store.scan" />
+    <section class="panel status-detail"><div class="panel-heading"><div><p class="eyebrow">CURRENT TASK</p><h2>{{ targetName(store.scan.scope_key === 'system_drive_c' ? 'c_drive' : store.scan.scope_key === 'current_user_temp' ? 'user_temp' : store.scan.scope_key === 'project_workspace' ? 'project' : 'fixture') }}</h2></div><span class="status-pill" :class="store.scan.state">{{ completionLabel(store.scan) }}</span></div><p v-if="['system_drive_c', 'current_user_temp'].includes(store.scan.scope_key)" class="inline-note">Low-Impact Scan · Metadata Only · 单扫描任务。只读分析可随时取消，不读取正文，也不会删除文件。</p><ScanProgress :scan="store.scan" />
       <div class="detail-grid"><div><span>创建时间</span><strong>{{ formatLocalTime(store.scan.created_at) }}</strong></div><div><span>开始时间</span><strong>{{ formatLocalTime(store.scan.started_at) }}</strong></div><div><span>结束时间</span><strong>{{ formatLocalTime(store.scan.finished_at) }}</strong></div><div><span>任务编号</span><strong class="mono">{{ store.scan.scan_id }}</strong></div></div>
       <p v-if="store.scan.state === 'failed'" class="inline-error" role="alert">扫描失败：{{ store.scan.error_message || store.scan.error_code || '原因未知' }}</p>
       <p v-else-if="store.scan.state === 'cancelled'" class="inline-note">任务已取消；以下统计可能不完整。</p>
       <p v-else-if="store.scan.state === 'completed' && coverageIssueCount(store.scan)" class="coverage-note">{{ coverageHeading(store.scan) }}。部分位置按只读安全策略跳过，或元数据读取受限。</p>
       <p v-if="store.scan.state === 'completed' && store.scan.snapshot_status === 'pending'" class="inline-note">正在保存历史快照…</p>
       <p v-if="store.scan.state === 'completed' && store.scan.snapshot_status === 'failed'" class="inline-error" role="alert">扫描已完成，但历史快照保存失败（{{ store.scan.snapshot_error_code }}）。当前扫描结果仍可查看。</p>
+      <p v-if="store.scan.state === 'completed' && store.scan.scope_key === 'current_user_temp'" class="inline-note">文件元数据持久化：{{ formatNumber(store.scan.persisted_file_count) }} / {{ formatNumber(store.scan.observed_file_count) }} · {{ store.scan.file_metadata_coverage === 'complete' ? '完整覆盖' : `达到 ${formatNumber(store.scan.file_persistence_limit)} 项硬上限，覆盖受限` }}</p>
     </section>
     <div class="two-column">
       <section class="panel"><div class="panel-heading"><div><p class="eyebrow">COVERAGE</p><h2>覆盖情况</h2></div><span class="subtle-label">{{ coverageHeading(store.scan) }}</span></div>

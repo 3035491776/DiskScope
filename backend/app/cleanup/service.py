@@ -284,7 +284,7 @@ class CleanupService:
         if candidate["recorded_size"] != candidate["logical_bytes"]:
             plan["block_reasons"].insert(0, "SNAPSHOT_RECORD_MISMATCH")
         if (row["planned_action"] != "recycle" or row["requested_action"] != "recycle" or
-                row["scope_key"] != "system_drive_c" or
+                row["scope_key"] not in {"system_drive_c", "current_user_temp"} or
                 row["snapshot_id"] != candidate["snapshot_id"] or
                 row["rule_version"] != candidate["rule_version"] or
                 row["policy_rule_id"] != EXECUTION_RULE_ID or

@@ -268,7 +268,7 @@ class ControlledRecycleTests(unittest.TestCase):
             migrated = connection.execute(
                 "SELECT * FROM cleanup_execution_runs WHERE id = 'old-audit'").fetchone()
             self.assertIsNotNone(migrated)
-            self.assertEqual(connection.execute("PRAGMA user_version").fetchone()[0], 5)
+            self.assertEqual(connection.execute("PRAGMA user_version").fetchone()[0], 6)
             self.assertEqual(migrated["policy_rule_id"], "USER_TEMP_STALE_FILE_PREFLIGHT_V1")
             self.assertEqual(connection.execute("PRAGMA integrity_check").fetchone()[0], "ok")
             self.assertEqual(connection.execute("PRAGMA foreign_key_check").fetchall(), [])
@@ -296,7 +296,7 @@ class ControlledRecycleTests(unittest.TestCase):
         with self.store._connection() as connection:
             migrated = connection.execute(
                 "SELECT * FROM cleanup_execution_runs WHERE id = 'v4-audit'").fetchone()
-            self.assertEqual(connection.execute("PRAGMA user_version").fetchone()[0], 5)
+            self.assertEqual(connection.execute("PRAGMA user_version").fetchone()[0], 6)
             self.assertEqual(migrated["policy_rule_id"],
                              "USER_TEMP_STALE_FILE_PREFLIGHT_V1")
             self.assertIsNone(migrated["actual_action"])

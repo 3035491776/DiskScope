@@ -1,13 +1,13 @@
 # DiskScope
 
-DiskScope 是 Windows 磁盘空间诊断工具。当前状态为 **V0.1 / M6.2 有限用户临时文件处理**。C: 扫描保持 metadata-only；DiskScope can recycle individually confirmed, strictly eligible stale files from the current user's Temp directory.
+DiskScope 是 Windows 磁盘空间诊断工具。当前状态为 **V0.1 / M6.3 当前用户 Temp 候选发现**。C: 与当前用户 Temp 扫描保持 metadata-only；已有 M6.2 执行门只允许逐个确认的严格合格文件进入 Windows 回收站。
 
 ## 当前实现
 
 - FastAPI 后端：`GET /health` 返回 `guarded_cleanup` 模式，并分别声明只读扫描与受保护回收站能力。
 - Vue 3 + TypeScript + Vite 页面：总览、空间分析、大文件与目录、扫描状态、历史与变化、空间建议、设置与说明；实际请求 `/health` 显示后端状态。
 - 只读扫描器：流式读取元数据、目录聚合、Top-K、错误摘要和协作取消；完成结果保存为 SQLite 快照，重启后仍可浏览。
-- 固定扫描入口：选择 fixture 或 `D:\Artilius\Codex\Windows-C-clear`；C: 只可从容量卡片确认后启动专用只读扫描。状态通过 HTTP 轮询，空间分析只按当前层级查询目录。
+- 固定扫描入口：选择 fixture、项目工作区或服务端解析的当前用户 `%LOCALAPPDATA%\Temp`；C: 只可从容量卡片确认后启动专用只读扫描。Temp 入口不接受前端路径，且扫描不会删除文件。
 - 本机固定卷容量卡片：`GET /api/v1/volumes` 读取容量，不启动扫描，也不列出网络盘。图表只绘制获准范围的扫描结果。
 - M2 页面和 API 口径见 [docs/m2-space-analysis.md](docs/m2-space-analysis.md)。
 - M3 在 `data/diskscope.db` 保存完成扫描的目录聚合与 Top-K 文件元数据；“历史与变化”页面比较相同固定范围的两次扫描。数据模型、增长口径、保留策略和故障隔离见 [docs/m3-snapshots-growth.md](docs/m3-snapshots-growth.md)。
@@ -17,13 +17,14 @@ DiskScope 是 Windows 磁盘空间诊断工具。当前状态为 **V0.1 / M6.2 �
 - M6 新增独立执行策略、实时元数据预检、90 秒单次 token 和 SQLite v3 审计。现有候选的 `/api/v1/cleanup/prepare` 仅做 dry-run，execute 仍返回 `EXECUTION_NOT_ENABLED_YET`。安全边界见 [docs/m6-cleanup-execution-safety.md](docs/m6-cleanup-execution-safety.md)。
 - M6.1 只允许 DiskScope 本次进程在 `%LOCALAPPDATA%\Temp\DiskScope\probes` 下创建并登记的 64 KiB 测试文件经过完整门禁后移入 Windows 回收站。SQLite 原位升级至 v4；现有用户文件和 M5 候选没有获得真实处理能力。详见 [docs/m6.1-controlled-recycle-execution.md](docs/m6.1-controlled-recycle-execution.md)。
 - M6.2 只允许已持久化候选中命中 `USER_TEMP_STALE_FILE_V1` 的单个普通文件：当前用户 `%LOCALAPPDATA%\Temp`、至少 30 天、高置信临时文件、低风险且达到 1 MiB。Prepare 和 Execute 都重新验证，只能移入 Windows 回收站，无永久删除回退。详见 [docs/m6.2-limited-user-temp-cleanup.md](docs/m6.2-limited-user-temp-cleanup.md)。
+- M6.3 增加固定 `current_user_temp` metadata-only 扫描，以 10,000 项硬上限保存最大与最旧文件的确定性混合元数据，并明确报告完整或受限覆盖。结果进入独立 Snapshot、M5 候选分析和 M6.2 只读资格评估；不自动 prepare、签发 token 或执行。详见 [docs/m6.3-user-temp-candidate-discovery.md](docs/m6.3-user-temp-candidate-discovery.md)。
 - Low-Impact `standard` 策略：单枚举 worker、禁止跨卷和 reparse 跟随；开发区展示进程范围资源指标。设计与口径见 [docs/low-impact-scan.md](docs/low-impact-scan.md)。
 - `setup.bat`：检查本机 Python 和 Node.js，创建项目 `.venv`，安装依赖并构建前端。
 - `start.bat`：调用 `launcher/bootstrap.py` 启动后端，等待真实健康检查成功，再打开默认浏览器。
 
 ## 尚未实现
 
-本阶段可显式分析固定 C:\ 范围，也保留 fixture 与项目工作区；D:\ 整卷、任意路径和网络路径仍拒绝。总览、空间分析、大文件与目录和空间建议可在重启后使用 SQLite 最新已完成快照。真实处理仅限逐个确认的严格合格当前用户 Temp 文件并移入回收站；批量、目录、应用缓存、系统转储和永久删除均未开放。扫描器与执行策略都不打开文件正文，安全边界由后端执行。
+本阶段可显式分析固定 C:\ 和当前用户 Temp 范围，也保留 fixture 与项目工作区；D:\ 整卷、任意路径和网络路径仍拒绝。总览、空间分析、大文件与目录和空间建议可在重启后使用各自 scope 的最新已完成快照。真实处理边界没有扩大；批量、目录、应用缓存、系统转储和永久删除均未开放。扫描器与执行策略都不打开文件正文，安全边界由后端执行。
 
 ## 首次准备与日常启动
 
@@ -65,7 +66,7 @@ npm.cmd --prefix frontend run build
 npm.cmd --prefix frontend test
 ```
 
-扫描 API 位于 `/api/v1/scans`，提供创建、状态、取消、Top 文件/大目录和当前层级目录结果；容量接口位于 `/api/v1/volumes`，历史与比较接口位于 `/api/v1/snapshots` 和 `/api/v1/compare`；快照候选分析与查询位于 `/api/v1/snapshots/{id}/analyze` 和 `/api/v1/candidates`。除 `/health` 外，这些 API 需要本机会话；修改请求还校验 Origin。C: 只能由固定 `system_drive_c` scope 与显式确认进入专用只读策略；直接提交 `root: "C:\\"` 仍拒绝。项目扫描按路径组件排除 `.git/`、`.venv/`、`frontend/node_modules/`、`frontend/dist/`、`logs/`、`data/`。D: 和其他整卷、UNC、设备路径及重解析点仍被拒绝。
+扫描 API 位于 `/api/v1/scans`，提供创建、状态、取消、Top 文件/大目录和当前层级目录结果；容量接口位于 `/api/v1/volumes`，历史与比较接口位于 `/api/v1/snapshots` 和 `/api/v1/compare`；快照候选分析与查询位于 `/api/v1/snapshots/{id}/analyze` 和 `/api/v1/candidates`。除 `/health` 外，这些 API 需要本机会话；修改请求还校验 Origin。C: 只能由固定 `system_drive_c` scope 与显式确认进入专用只读策略；Temp 只能使用 `current_user_temp`，路径由后端从当前会话环境解析。任意 root、其他整卷、UNC、设备路径及重解析点仍被拒绝。
 
 ## 安全边界
 
