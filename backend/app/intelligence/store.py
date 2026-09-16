@@ -109,6 +109,8 @@ class CandidateStore:
         item = dict(row)
         item["evidence"] = json.loads(item.pop("evidence_json"))
         item["requires_manual_review"] = bool(item["requires_manual_review"])
+        recycled = bool(item.pop("was_recycled", 0))
+        item["execution_state"] = "recycled" if recycled else "available"
         return item
 
     @staticmethod
@@ -180,18 +182,27 @@ class CandidateStore:
                 return {"latest_snapshot": dict(latest_snapshot) if latest_snapshot else None,
                         "run": None, "summary": None, "items": [], "total": 0}
             run_id = str(row["id"])
-            conditions = ["run_id = ?", "group_id IS NULL"]
+            conditions = ["c.run_id = ?", "c.group_id IS NULL"]
             params: list[object] = [run_id]
             for column, value in (("category", category), ("risk_level", risk), ("confidence", confidence)):
                 if value:
-                    conditions.append(f"{column} = ?")
+                    conditions.append(f"c.{column} = ?")
                     params.append(value)
             where = " AND ".join(conditions)
-            total = connection.execute(f"SELECT COUNT(*) FROM cleanup_candidates WHERE {where}", params).fetchone()[0]
+            total = connection.execute(
+                f"SELECT COUNT(*) FROM cleanup_candidates c WHERE {where}", params).fetchone()[0]
             rows = connection.execute(
-                f"SELECT * FROM cleanup_candidates WHERE {where} "
-                "ORDER BY CASE risk_level WHEN 'review' THEN 0 WHEN 'low' THEN 1 "
-                "WHEN 'high' THEN 2 ELSE 3 END, logical_bytes DESC, relative_path LIMIT ?",
+                f"""SELECT c.*, f.mtime AS snapshot_mtime,
+                EXISTS(SELECT 1 FROM cleanup_execution_runs e
+                    WHERE e.candidate_id = c.candidate_id AND e.status = 'completed'
+                    AND e.target_mutation = 'recycle_bin') AS was_recycled
+                FROM cleanup_candidates c
+                JOIN candidate_runs cr ON cr.id = c.run_id
+                LEFT JOIN file_snapshots f ON f.snapshot_id = cr.snapshot_id
+                    AND f.relative_path = c.relative_path
+                WHERE {where} """
+                "ORDER BY CASE c.risk_level WHEN 'review' THEN 0 WHEN 'low' THEN 1 "
+                "WHEN 'high' THEN 2 ELSE 3 END, c.logical_bytes DESC, c.relative_path LIMIT ?",
                 (*params, limit),
             ).fetchall()
             items = sorted((self._candidate(item) for item in rows),
@@ -204,9 +215,15 @@ class CandidateStore:
     def detail(self, candidate_id: str, scope_key: str) -> dict[str, object]:
         validate_scope(scope_key)
         with self.snapshots._connection() as connection:
-            row = connection.execute("""SELECT c.* FROM cleanup_candidates c
+            row = connection.execute("""SELECT c.*, f.mtime AS snapshot_mtime,
+                EXISTS(SELECT 1 FROM cleanup_execution_runs e
+                    WHERE e.candidate_id = c.candidate_id AND e.status = 'completed'
+                    AND e.target_mutation = 'recycle_bin') AS was_recycled
+                FROM cleanup_candidates c
                 JOIN candidate_runs r ON r.id = c.run_id
                 JOIN scan_snapshots s ON s.id = r.snapshot_id
+                LEFT JOIN file_snapshots f ON f.snapshot_id = r.snapshot_id
+                    AND f.relative_path = c.relative_path
                 WHERE c.candidate_id = ? AND s.scope_key = ?""", (candidate_id, scope_key)).fetchone()
             if row is None:
                 raise CandidateNotFound(candidate_id)

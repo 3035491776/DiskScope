@@ -23,6 +23,10 @@ const error = ref('')
 const detailError = ref('')
 const prepared = ref<PreparedCleanup | null>(null)
 const prepareLoading = ref(false)
+const candidateConfirmed = ref(false)
+const candidateExecutionLoading = ref(false)
+const candidateExecutionError = ref('')
+const candidateResult = ref<CleanupExecutionResult | null>(null)
 const executionHistory = ref<CleanupExecution[]>([])
 const controlledProbe = ref<ControlledProbe | null>(null)
 const probePlan = ref<PreparedCleanup | null>(null)
@@ -78,6 +82,8 @@ async function loadRecommendations(autoAnalyze = true) {
 async function openDetail(item: CleanupCandidate) {
   selected.value = null
   prepared.value = null
+  candidateResult.value = null
+  candidateExecutionError.value = ''
   members.value = []
   detailError.value = ''
   detailLoading.value = true
@@ -103,11 +109,43 @@ async function prepareSelected() {
   detailError.value = ''
   try {
     prepared.value = await prepareCleanup(selected.value.candidate_id)
+    candidateConfirmed.value = false
+    candidateExecutionError.value = ''
     selected.value = null
     await loadExecutionHistory()
   }
   catch (cause) { detailError.value = cause instanceof Error ? cause.message : '当前状态检查失败' }
   finally { prepareLoading.value = false }
+}
+
+async function recycleSelected() {
+  const token = prepared.value?.execution_token
+  if (!token || !prepared.value?.real_execution_enabled || !candidateConfirmed.value) return
+  candidateExecutionLoading.value = true
+  candidateExecutionError.value = ''
+  try {
+    candidateResult.value = await executeCleanup(token)
+    prepared.value = null
+    candidateConfirmed.value = false
+    await Promise.all([loadExecutionHistory(), loadRecommendations(false)])
+  } catch (cause) {
+    candidateExecutionError.value = executionReasonLabel(
+      cause instanceof Error ? cause.message : 'RECYCLE_OPERATION_FAILED',
+    )
+    await loadExecutionHistory()
+  } finally { candidateExecutionLoading.value = false }
+}
+
+function fileName(path: string): string {
+  return path.split('\\').pop() || path
+}
+
+function auditStatus(record: CleanupExecution): string {
+  if (record.status === 'completed' && record.target_mutation === 'recycle_bin') return '已移入回收站'
+  if (record.status === 'prepared') return '等待确认'
+  if (record.status === 'expired') return '确认已过期，未处理'
+  if (record.status === 'blocked' || record.status === 'failed') return '未处理'
+  return record.status
 }
 
 async function loadExecutionHistory() {
@@ -165,8 +203,8 @@ watch([category, confidence], () => { if (store.sessionReady) void loadRecommend
 </script>
 
 <template>
-  <div class="page-heading"><div><p class="eyebrow">RECOMMENDATIONS / SAVED SNAPSHOT</p><h1>空间建议</h1><p class="page-description">解释哪些项目值得关注，以及识别依据与处理风险。</p></div><span class="read-only-chip">执行门禁 · 真实候选处理未开放</span></div>
-  <p class="coverage-note">历史快照不是处理授权。下方历史候选仅提供预检，不会移动或删除文件。</p>
+  <div class="page-heading"><div><p class="eyebrow">RECOMMENDATIONS / SAVED SNAPSHOT</p><h1>空间建议</h1><p class="page-description">解释哪些项目值得关注，以及识别依据与处理风险。</p></div><span class="read-only-chip">严格门禁 · 单文件回收站</span></div>
+  <p class="coverage-note">历史快照不是处理授权。只有当前用户 LocalAppData\Temp 中至少 30 天未修改、达到 1 MiB 的高置信低风险临时普通文件，才能逐个重新验证并由您确认移入回收站。</p>
   <section class="panel"><div class="panel-heading"><div><p class="eyebrow">SOURCE</p><h2>Windows C: · 基于已保存扫描结果</h2></div><button type="button" class="text-button" :disabled="loading || !latestSnapshot" @click="loadRecommendations(true)">重新分析已保存快照</button></div>
     <p v-if="!store.sessionReady" class="inline-note">请从 start.bat 打开本地页面，以查看已保存的扫描结果。</p>
     <template v-else><div class="recommendation-meta"><span>扫描时间：{{ formatLocalTime(latestSnapshot?.completed_at) }}</span><span>规则版本：{{ run?.rule_version ?? 'rules-v1.0.0' }}</span><span>分析范围：大文件 Top-K + 目录聚合</span><span v-if="run">分析耗时：{{ formatSeconds(run.duration_ms) }}</span></div>
@@ -188,24 +226,34 @@ watch([category, confidence], () => { if (store.sessionReady) void loadRecommend
     </section>
   </template>
   <p v-if="detailLoading" class="inline-note" role="status">正在读取识别依据…</p>
-  <p v-if="detailError" class="inline-error" role="alert">{{ detailError }}</p>
-  <div v-if="selected" class="modal-backdrop" @click.self="selected = null"><section class="confirm-dialog recommendation-detail" role="dialog" aria-modal="true" aria-labelledby="recommendation-title"><p class="eyebrow">EVIDENCE / READ ONLY</p><h2 id="recommendation-title">{{ selected.title }}</h2><p>{{ selected.summary }}</p><div class="recommendation-tags"><span>{{ riskLabel(selected.risk_level) }}</span><span>置信度 {{ confidenceLabel(selected.confidence) }}</span><span>{{ categoryLabel(selected.category) }}</span></div><p class="path-cell" :title="selected.display_path">{{ selected.display_path }}</p><strong>{{ formatBytes(selected.logical_bytes) }}</strong><h3>识别依据</h3><ul><li v-for="evidence in selected.evidence" :key="evidence">{{ evidence }}</li></ul><p>{{ selected.explanation }}</p><p><strong>建议：</strong>{{ actionLabel(selected.recommended_action) }} 当前版本不会删除或修改该项目。</p><p class="fine-print">规则：{{ selected.source_rule_id }} · {{ selected.rule_version }} · {{ selected.reason_code }}</p><div v-if="members.length"><h3>分组成员（{{ members.length }}）</h3><div class="member-list"><div v-for="member in members" :key="member.candidate_id"><span class="path-cell" :title="member.display_path">{{ member.display_path }}</span><strong class="size-cell">{{ formatBytes(member.logical_bytes) }}</strong></div></div></div><p class="execution-status">{{ selected.execution_hint === 'prepare_available' ? '可准备处理 · 需重新核对当前文件' : executionStatus(selected) }}</p><div class="confirm-actions"><button v-if="selected.execution_hint === 'prepare_available'" type="button" class="primary-button" :disabled="prepareLoading" @click="prepareSelected">{{ prepareLoading ? '正在检查…' : '准备处理' }}</button><button type="button" class="text-button" @click="copyPath(selected.display_path)">复制路径</button><button type="button" class="primary-button" @click="selected = null">关闭</button></div></section></div>
+  <p v-if="detailError" class="inline-error" role="alert">{{ executionReasonLabel(detailError) }}</p>
+  <p v-if="candidateResult" class="coverage-note" role="status"><strong>已移入 Windows 回收站。</strong> 文件原始大小记录已保留；磁盘可用空间未必立即增加。</p>
+  <div v-if="selected" class="modal-backdrop" @click.self="selected = null"><section class="confirm-dialog recommendation-detail" role="dialog" aria-modal="true" aria-labelledby="recommendation-title"><p class="eyebrow">EVIDENCE / SAVED SNAPSHOT</p><h2 id="recommendation-title">{{ selected.title }}</h2><p>{{ selected.summary }}</p><div class="recommendation-tags"><span>{{ riskLabel(selected.risk_level) }}</span><span>置信度 {{ confidenceLabel(selected.confidence) }}</span><span>{{ categoryLabel(selected.category) }}</span></div><p class="path-cell" :title="selected.display_path">{{ selected.display_path }}</p><strong>{{ formatBytes(selected.logical_bytes) }}</strong><h3>识别依据</h3><ul><li v-for="evidence in selected.evidence" :key="evidence">{{ evidence }}</li></ul><p>{{ selected.explanation }}</p><p><strong>建议：</strong>{{ actionLabel(selected.recommended_action) }} <span v-if="selected.execution_hint !== 'prepare_available'">当前策略不允许处理该项目。</span></p><p class="fine-print">识别规则：{{ selected.source_rule_id }} · {{ selected.rule_version }} · {{ selected.reason_code }}</p><div v-if="members.length"><h3>分组成员（{{ members.length }}）</h3><div class="member-list"><div v-for="member in members" :key="member.candidate_id"><span class="path-cell" :title="member.display_path">{{ member.display_path }}</span><strong class="size-cell">{{ formatBytes(member.logical_bytes) }}</strong></div></div></div><p class="execution-status">{{ selected.execution_hint === 'prepare_available' ? '可准备处理 · 需重新核对当前文件' : executionStatus(selected) }}</p><ul v-if="selected.execution_policy?.block_reasons.length"><li v-for="reason in selected.execution_policy.block_reasons" :key="reason">{{ executionReasonLabel(reason) }}</li></ul><div class="confirm-actions"><button v-if="selected.execution_hint === 'prepare_available'" type="button" class="primary-button" :disabled="prepareLoading" @click="prepareSelected">{{ prepareLoading ? '正在检查…' : '准备处理' }}</button><button type="button" class="text-button" @click="copyPath(selected.display_path)">复制路径</button><button type="button" class="primary-button" @click="selected = null">关闭</button></div></section></div>
   <div v-if="prepared" class="modal-backdrop" @click.self="prepared = null">
     <section class="confirm-dialog recommendation-detail" role="dialog" aria-modal="true" aria-labelledby="preflight-title">
-      <p class="eyebrow">CURRENT FILE / DRY RUN</p><h2 id="preflight-title">当前状态预检</h2>
+      <p class="eyebrow">CURRENT FILE / PREFLIGHT</p><h2 id="preflight-title">当前状态预检</h2>
+      <h3>{{ fileName(prepared.preflight.current_path) }}</h3>
       <p class="path-cell" :title="prepared.preflight.current_path">{{ prepared.preflight.current_path }}</p>
       <p>扫描时：{{ formatBytes(prepared.preflight.snapshot_size) }} · {{ formatLocalTime(prepared.preflight.snapshot_mtime) }}</p>
       <p>当前：{{ prepared.preflight.current_size === null ? '无法读取' : formatBytes(prepared.preflight.current_size) }} · {{ formatLocalTime(prepared.preflight.current_mtime) }}</p>
-      <p><strong>状态：</strong>{{ prepared.preflight.block_reasons.length ? '该文件已变化或不符合策略，处理已阻止' : '预检通过；真实处理尚未开放' }}</p>
-      <p><strong>计划：</strong>{{ prepared.preflight.planned_action === 'dry_run_only' ? '仅预检，不移动文件' : '无' }}</p>
+      <p>文件年龄：{{ prepared.preflight.age_days == null ? '无法验证' : `${prepared.preflight.age_days.toFixed(1)} 天` }}</p>
+      <div class="recommendation-tags"><span>{{ categoryLabel(prepared.preflight.category ?? '') }}</span><span>{{ riskLabel((prepared.preflight.risk_level ?? 'review') as CleanupCandidate['risk_level']) }}</span><span>置信度 {{ confidenceLabel((prepared.preflight.confidence ?? 'low') as CleanupCandidate['confidence']) }}</span></div>
+      <p><strong>执行策略：</strong>{{ prepared.preflight.policy_rule_id }}</p>
+      <p><strong>状态：</strong>{{ prepared.preflight.block_reasons.length ? '该文件已变化或不符合策略，处理已阻止' : '预检通过，等待您的明确确认' }}</p>
+      <p><strong>计划动作：</strong>{{ prepared.preflight.planned_action === 'recycle' ? '移入 Windows 回收站' : '无' }}</p>
       <ul v-if="prepared.preflight.block_reasons.length"><li v-for="reason in prepared.preflight.block_reasons" :key="reason">{{ executionReasonLabel(reason) }}</li></ul>
-      <p class="fine-print">预检不会修改文件。令牌 {{ prepared.expires_at ? `于 ${formatLocalTime(prepared.expires_at)} 过期` : '未签发' }}；本版执行功能关闭。</p>
-      <div class="confirm-actions"><button type="button" class="primary-button" @click="prepared = null">返回建议</button></div>
+      <template v-if="prepared.real_execution_enabled && prepared.execution_token">
+        <p class="coverage-note">仅处理这一个文件。执行时会再次验证路径、类型、大小、时间、文件身份、父级链接和磁盘卷。</p>
+        <label><input v-model="candidateConfirmed" type="checkbox"> 我确认这是我要处理的文件</label>
+      </template>
+      <p v-if="candidateExecutionError" class="inline-error" role="alert">{{ candidateExecutionError }}</p>
+      <p class="fine-print">预检本身不会修改文件。令牌 {{ prepared.expires_at ? `于 ${formatLocalTime(prepared.expires_at)} 过期` : '未签发' }}。移入回收站后磁盘可用空间未必立即增加。</p>
+      <div class="confirm-actions"><button v-if="prepared.real_execution_enabled && prepared.execution_token" type="button" class="primary-button" :disabled="!candidateConfirmed || candidateExecutionLoading" @click="recycleSelected">{{ candidateExecutionLoading ? '正在移入…' : '移入 Windows 回收站' }}</button><button type="button" class="text-button" @click="prepared = null">取消</button></div>
     </section>
   </div>
   <section class="panel controlled-probe-panel">
     <div class="panel-heading"><div><p class="eyebrow">CONTROLLED PROBE TEST</p><h2>安全执行测试</h2></div><span class="read-only-chip">仅限 DiskScope 自建文件</span></div>
-    <p class="inline-note">仅测试 DiskScope 本次运行创建并登记的 64 KB 临时文件，不会处理您的现有文件。真实候选仍保持只读。</p>
+    <p class="inline-note">仅测试 DiskScope 本次运行创建并登记的 64 KB 临时文件。真实候选使用独立的 USER_TEMP_STALE_FILE_V1 门禁与人工确认。</p>
     <div v-if="controlledProbe" class="probe-summary">
       <div><strong>{{ controlledProbe.absolute_path.split('\\').pop() }}</strong><p class="path-cell" :title="controlledProbe.absolute_path">{{ controlledProbe.absolute_path }}</p></div>
       <div class="recommendation-tags"><span>{{ formatBytes(controlledProbe.expected_size) }}</span><span>{{ formatLocalTime(controlledProbe.created_at) }}</span><span>{{ controlledProbe.state }}</span></div>
@@ -234,8 +282,8 @@ watch([category, confidence], () => { if (store.sessionReady) void loadRecommend
     </section>
   </div>
   <section class="panel"><div class="panel-heading"><div><p class="eyebrow">AUDIT</p><h2>操作记录</h2></div><button type="button" class="text-button" @click="loadExecutionHistory">刷新</button></div>
-    <p class="inline-note">记录预检与执行门禁结果；“预检通过”不表示文件已移动或释放空间。</p>
+    <p class="inline-note">记录预检与执行门禁结果；只有状态明确为“已移入回收站”才表示原路径已消失。这里不计算磁盘可用空间变化。</p>
     <p v-if="!executionHistory.length" class="inline-note">暂无操作记录。</p>
-    <div v-else class="recommendation-list"><div v-for="record in executionHistory" :key="record.id" class="recommendation-item"><strong>{{ formatLocalTime(record.prepare_time) }} · {{ record.status }}</strong><p class="path-cell" :title="record.original_path">{{ record.original_path }}</p><p>{{ record.final_result ?? '未执行' }} · {{ record.failure_code ?? '无错误' }}</p></div></div>
+    <div v-else class="recommendation-list"><div v-for="record in executionHistory" :key="record.id" class="recommendation-item"><div class="recommendation-item-head"><div><strong>{{ formatLocalTime(record.execute_time ?? record.prepare_time) }} · {{ auditStatus(record) }}</strong><p>{{ fileName(record.original_path) }}</p><p class="path-cell" :title="record.original_path">{{ record.original_path }}</p></div><strong class="size-cell">{{ formatBytes(record.execute_size ?? record.preflight_size ?? record.snapshot_size) }}</strong></div><div class="recommendation-tags"><span>动作：移入回收站</span><span>策略：{{ record.policy_rule_id }}</span><span v-if="record.candidate_category">{{ categoryLabel(record.candidate_category) }}</span></div><p v-if="record.failure_code">原因：{{ executionReasonLabel(record.failure_code) }}</p><p>结果：{{ record.final_result === 'recycled' ? '已移入回收站' : '未处理' }} · target_mutation={{ record.target_mutation }}</p></div></div>
   </section>
 </template>

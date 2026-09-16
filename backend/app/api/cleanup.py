@@ -1,4 +1,4 @@
-"""M6 gate and M6.1 controlled-probe-only recycle endpoints."""
+"""M6.2 candidate-ID-only preparation and single-token recycle endpoints."""
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, ConfigDict, Field

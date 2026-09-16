@@ -14,14 +14,24 @@ router = APIRouter(prefix="/api/v1", tags=["candidates"], dependencies=[Depends(
 
 
 def _add_execution_policy(item: dict[str, object], scope_key: str) -> None:
-    reasons = ExecutionPolicyEngine().static_reasons(item, scope_key)
-    item["execution_hint"] = "suggestion_only" if reasons else "prepare_available"
+    policy = ExecutionPolicyEngine()
+    reasons = policy.discovery_reasons(item, scope_key, item.get("snapshot_mtime"))
+    if item.get("execution_state") == "recycled":
+        reasons.append("ALREADY_EXECUTED")
+    reasons = list(dict.fromkeys(reasons))
+    item["execution_hint"] = (
+        "history_only" if item.get("execution_state") == "recycled"
+        else "suggestion_only" if reasons else "prepare_available"
+    )
     item["execution_policy"] = {
-        "eligibility": "ineligible" if reasons else "eligible_for_review",
-        "allowed_actions": [] if reasons else ["dry_run"],
+        "eligibility": "ineligible" if reasons else "eligible_for_recycle",
+        "allowed_actions": [] if reasons else ["recycle"],
         "block_reasons": reasons,
-        "required_checks": ["path_scope", "parent_reparse", "target_type", "size", "mtime", "age"],
-        "real_execution_enabled": False,
+        "policy_rule_id": "USER_TEMP_STALE_FILE_V1",
+        "required_checks": ["candidate_id", "path_scope", "current_user_temp", "parent_reparse",
+                            "target_reparse", "regular_file", "volume", "size", "mtime",
+                            "age_30_days", "extension", "category", "confidence", "risk"],
+        "real_execution_enabled": not reasons,
     }
 
 

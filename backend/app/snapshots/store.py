@@ -14,7 +14,7 @@ from app.scanner.models import ScanResult
 from app.snapshots.compare import compare_directories, compare_top_files, delta_ratio
 
 
-SCHEMA_VERSION = 4
+SCHEMA_VERSION = 5
 RETENTION_PER_SCOPE = 20
 DEFAULT_DATABASE = PROJECT_ROOT / "data" / "diskscope.db"
 SUMMARY_COLUMNS = ("id AS snapshot_id, scan_id, scope_key, scope_label, status, "
@@ -88,10 +88,19 @@ class SnapshotStore:
                 if version == 3:
                     self._migrate_v3_to_v4(connection)
                     version = 4
+                if version == 4:
+                    self._migrate_v4_to_v5(connection)
+                    version = 5
                 actual = {row[0] for row in connection.execute(
                     "SELECT name FROM sqlite_master WHERE type = 'table'"
                 )}
-                if version != SCHEMA_VERSION or "controlled_probes" not in actual:
+                execution_columns = {row[1] for row in connection.execute(
+                    "PRAGMA table_info(cleanup_execution_runs)"
+                )}
+                v5_columns = {"policy_rule_id", "candidate_category", "candidate_risk",
+                              "candidate_confidence", "actual_action"}
+                if (version != SCHEMA_VERSION or "controlled_probes" not in actual or
+                        not v5_columns <= execution_columns):
                     raise SnapshotStoreError("SNAPSHOT_DATABASE_UNAVAILABLE")
             yield connection
         except sqlite3.Error as exc:
@@ -136,7 +145,7 @@ class SnapshotStore:
             # The UNIQUE constraints also index (snapshot_id, relative_path) for both child tables.
             SnapshotStore._create_candidate_tables(connection)
             SnapshotStore._create_controlled_probe_table(connection)
-            SnapshotStore._create_execution_table_v4(connection)
+            SnapshotStore._create_execution_table_v5(connection)
             connection.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
             connection.commit()
         except Exception:
@@ -241,6 +250,20 @@ class SnapshotStore:
             "CREATE INDEX IF NOT EXISTS execution_probe ON cleanup_execution_runs(probe_id, prepare_time DESC)")
 
     @staticmethod
+    def _create_execution_table_v5(connection: sqlite3.Connection) -> None:
+        SnapshotStore._create_execution_table_v4(connection)
+        connection.execute("""ALTER TABLE cleanup_execution_runs
+            ADD COLUMN policy_rule_id TEXT NOT NULL DEFAULT 'LEGACY_EXECUTION_POLICY'""")
+        connection.execute(
+            "ALTER TABLE cleanup_execution_runs ADD COLUMN candidate_category TEXT")
+        connection.execute(
+            "ALTER TABLE cleanup_execution_runs ADD COLUMN candidate_risk TEXT")
+        connection.execute(
+            "ALTER TABLE cleanup_execution_runs ADD COLUMN candidate_confidence TEXT")
+        connection.execute(
+            "ALTER TABLE cleanup_execution_runs ADD COLUMN actual_action TEXT")
+
+    @staticmethod
     def _migrate_v3_to_v4(connection: sqlite3.Connection) -> None:
         try:
             connection.execute("BEGIN IMMEDIATE")
@@ -272,6 +295,31 @@ class SnapshotStore:
                     FROM cleanup_execution_runs_v3""")
                 connection.execute("DROP TABLE cleanup_execution_runs_v3")
                 connection.execute("PRAGMA user_version = 4")
+            connection.commit()
+        except Exception:
+            connection.rollback()
+            raise
+
+    @staticmethod
+    def _migrate_v4_to_v5(connection: sqlite3.Connection) -> None:
+        try:
+            connection.execute("BEGIN IMMEDIATE")
+            if connection.execute("PRAGMA user_version").fetchone()[0] == 4:
+                connection.execute("""ALTER TABLE cleanup_execution_runs
+                    ADD COLUMN policy_rule_id TEXT NOT NULL DEFAULT 'LEGACY_EXECUTION_POLICY'""")
+                connection.execute(
+                    "ALTER TABLE cleanup_execution_runs ADD COLUMN candidate_category TEXT")
+                connection.execute(
+                    "ALTER TABLE cleanup_execution_runs ADD COLUMN candidate_risk TEXT")
+                connection.execute(
+                    "ALTER TABLE cleanup_execution_runs ADD COLUMN candidate_confidence TEXT")
+                connection.execute(
+                    "ALTER TABLE cleanup_execution_runs ADD COLUMN actual_action TEXT")
+                connection.execute("""UPDATE cleanup_execution_runs
+                    SET policy_rule_id = CASE
+                        WHEN scope_key = 'controlled_probe' THEN 'CONTROLLED_PROBE_RECYCLE_V1'
+                        ELSE 'USER_TEMP_STALE_FILE_PREFLIGHT_V1' END""")
+                connection.execute("PRAGMA user_version = 5")
             connection.commit()
         except Exception:
             connection.rollback()

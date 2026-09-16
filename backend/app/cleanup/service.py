@@ -1,4 +1,4 @@
-"""Audited M6 gate plus M6.1 recycle for server-owned controlled probes only."""
+"""Audited M6.2 single-file recycle gate for probes and strict user Temp candidates."""
 
 from __future__ import annotations
 
@@ -9,7 +9,7 @@ import secrets
 import threading
 from datetime import datetime, timedelta, timezone
 
-from app.cleanup.policy import ExecutionPolicyEngine
+from app.cleanup.policy import EXECUTION_RULE_ID, ExecutionPolicyEngine
 from app.cleanup.probes import ControlledProbeRegistry, ProbeError, PROBE_RULE_VERSION
 from app.cleanup.recycle import RecycleError, WindowsRecycleBackend
 from app.operations import OperationConflict, operations
@@ -112,7 +112,7 @@ class CleanupService:
         return self._require_probes().list_current()
 
     def prepare(self, candidate_id: str, requested_action: str) -> dict[str, object]:
-        """Retain the M6 historical-candidate dry run; it can never mutate a target."""
+        """Prepare one persisted candidate; no path supplied by the caller is accepted."""
         if requested_action != "recycle":
             raise CleanupError("EXECUTION_ACTION_BLOCKED", 400)
         with self._lock, self.snapshots._connection() as connection:
@@ -128,10 +128,22 @@ class CleanupService:
                 plan["block_reasons"].append("OPERATION_CONFLICT")
                 plan["eligibility"] = "ineligible"
                 plan["planned_action"] = "none"
+            already_recycled = connection.execute("""SELECT 1 FROM cleanup_execution_runs
+                WHERE candidate_id = ? AND status = 'completed'
+                AND target_mutation = 'recycle_bin' LIMIT 1""", (candidate_id,)).fetchone()
+            if already_recycled:
+                plan["block_reasons"].append("ALREADY_EXECUTED")
+                plan["eligibility"] = "ineligible"
+                plan["planned_action"] = "none"
+                plan["allowed_actions"] = []
             return self._store_prepare(connection, plan, candidate_id=candidate_id,
                 probe_id=None, snapshot_id=candidate["snapshot_id"],
                 scope_key=candidate["scope_key"], rule_version=candidate["rule_version"],
-                requested_action=requested_action, real_execution_enabled=False)
+                policy_rule_id=str(plan["policy_rule_id"]), requested_action=requested_action,
+                candidate_category=str(candidate["category"]),
+                candidate_risk=str(candidate["risk_level"]),
+                candidate_confidence=str(candidate["confidence"]),
+                real_execution_enabled=True)
 
     def prepare_probe(self, probe_id: str, requested_action: str) -> dict[str, object]:
         if requested_action != "recycle":
@@ -151,7 +163,9 @@ class CleanupService:
                 plan["planned_action"] = "none"
             response = self._store_prepare(connection, plan, candidate_id=None,
                 probe_id=probe_id, snapshot_id=None, scope_key="controlled_probe",
-                rule_version=PROBE_RULE_VERSION, requested_action=requested_action,
+                rule_version=PROBE_RULE_VERSION, policy_rule_id=PROBE_RULE_VERSION,
+                requested_action=requested_action, candidate_category=None,
+                candidate_risk=None, candidate_confidence=None,
                 real_execution_enabled=True)
             if response["execution_token"]:
                 probes.update_state(connection, probe_id, "prepared")
@@ -163,10 +177,13 @@ class CleanupService:
     def _store_prepare(self, connection, plan: dict[str, object], *,
                        candidate_id: str | None, probe_id: str | None,
                        snapshot_id: str | None, scope_key: str, rule_version: str,
-                       requested_action: str, real_execution_enabled: bool) -> dict[str, object]:
+                       policy_rule_id: str, requested_action: str,
+                       candidate_category: str | None, candidate_risk: str | None,
+                       candidate_confidence: str | None,
+                       real_execution_enabled: bool) -> dict[str, object]:
         prepared_at = datetime.now(timezone.utc)
         expires_at = prepared_at + timedelta(seconds=TOKEN_LIFETIME_SECONDS)
-        token = secrets.token_urlsafe(32) if plan["eligibility"] != "ineligible" else None
+        token = secrets.token_urlsafe(32) if plan["eligibility"] == "eligible_for_recycle" else None
         token_hash = hashlib.sha256(token.encode()).hexdigest() if token else None
         run_id = secrets.token_hex(16)
         status = "prepared" if token else "blocked"
@@ -177,9 +194,10 @@ class CleanupService:
             prepare_time, expires_at, status, original_path, snapshot_size,
             snapshot_mtime, preflight_size, preflight_mtime, fingerprint_json,
             checks_json, block_reasons_json, policy_decision, token_outcome,
-            recycle_api_outcome, final_result, failure_code, target_mutation)
+            recycle_api_outcome, final_result, failure_code, target_mutation,
+            policy_rule_id, candidate_category, candidate_risk, candidate_confidence)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-                    NULL, ?, ?, 'none')""",
+                    NULL, ?, ?, 'none', ?, ?, ?, ?)""",
             (run_id, token_hash, candidate_id, probe_id, snapshot_id, scope_key,
              rule_version, requested_action, planned_action, plan["eligibility"],
              prepared_at.isoformat(), expires_at.isoformat() if token else None,
@@ -187,8 +205,9 @@ class CleanupService:
              plan["current_size"], plan["current_mtime"], json.dumps(plan["fingerprint"]),
              json.dumps(plan["checks"]), json.dumps(plan["block_reasons"]),
              plan["eligibility"], "active" if token else "not_issued",
-             "ready" if token else "blocked",
-             plan["block_reasons"][0] if not token and plan["block_reasons"] else None))
+              "ready" if token else "blocked",
+             plan["block_reasons"][0] if not token and plan["block_reasons"] else None,
+             policy_rule_id, candidate_category, candidate_risk, candidate_confidence))
         connection.commit()
         return {"execution_id": run_id, "execution_token": token,
                 "expires_at": expires_at.isoformat() if token else None,
@@ -196,6 +215,8 @@ class CleanupService:
                 "real_execution_enabled": real_execution_enabled and token is not None}
 
     def execute(self, token: str) -> dict[str, object]:
+        if not isinstance(token, str) or not token:
+            raise CleanupError("EXECUTION_TOKEN_INVALID", 404)
         try:
             with operations.cleanup_execution():
                 return self._execute_guarded(token)
@@ -223,7 +244,7 @@ class CleanupService:
                 raise CleanupError("OPERATION_CONFLICT")
             if row["probe_id"]:
                 return self._execute_probe(connection, row)
-            return self._execute_candidate_gate(connection, row)
+            return self._execute_candidate(connection, row)
 
     def _expire_one(self, connection, row, code: str, status: str) -> None:
         connection.execute("""UPDATE cleanup_execution_runs SET status = ?, execute_time = ?,
@@ -248,15 +269,37 @@ class CleanupService:
             (datetime.now(timezone.utc).isoformat(), size, mtime, checks, reasons, code, row["id"]))
         connection.commit()
 
-    def _execute_candidate_gate(self, connection, row) -> dict[str, object]:
+    def _execute_candidate(self, connection, row) -> dict[str, object]:
         candidate = self._candidate(connection, row["candidate_id"])
         plan = self.policy.preflight(candidate, candidate["scope_key"], candidate["snapshot_mtime"])
-        if (plan["fingerprint"] != json.loads(row["fingerprint_json"]) or
-                candidate["recorded_size"] != candidate["logical_bytes"]):
-            plan["block_reasons"].append("TARGET_CHANGED_SINCE_PREPARE")
-        failure = plan["block_reasons"][0] if plan["block_reasons"] else "EXECUTION_NOT_ENABLED_YET"
-        self._block_execution(connection, row, failure, plan)
-        raise CleanupError(failure)
+        already_recycled = connection.execute("""SELECT 1 FROM cleanup_execution_runs
+            WHERE candidate_id = ? AND id <> ? AND status = 'completed'
+            AND target_mutation = 'recycle_bin' LIMIT 1""",
+            (row["candidate_id"], row["id"])).fetchone()
+        if already_recycled:
+            plan["block_reasons"].insert(0, "ALREADY_EXECUTED")
+        prepared_fingerprint = json.loads(row["fingerprint_json"])
+        if plan["fingerprint"] is not None and plan["fingerprint"] != prepared_fingerprint:
+            plan["block_reasons"].insert(0, "TARGET_CHANGED_SINCE_PREPARE")
+        if candidate["recorded_size"] != candidate["logical_bytes"]:
+            plan["block_reasons"].insert(0, "SNAPSHOT_RECORD_MISMATCH")
+        if (row["planned_action"] != "recycle" or row["requested_action"] != "recycle" or
+                row["scope_key"] != "system_drive_c" or
+                row["snapshot_id"] != candidate["snapshot_id"] or
+                row["rule_version"] != candidate["rule_version"] or
+                row["policy_rule_id"] != EXECUTION_RULE_ID or
+                plan["policy_rule_id"] != EXECUTION_RULE_ID or
+                row["candidate_category"] != candidate["category"] or
+                row["candidate_risk"] != candidate["risk_level"] or
+                row["candidate_confidence"] != candidate["confidence"]):
+            plan["block_reasons"].append("EXECUTION_POLICY_CHANGED")
+        plan["block_reasons"] = list(dict.fromkeys(plan["block_reasons"]))
+        if plan["block_reasons"]:
+            code = plan["block_reasons"][0]
+            self._block_execution(connection, row, code, plan)
+            raise CleanupError(code)
+        return self._perform_recycle(
+            connection, row, candidate["display_path"], plan, probes=None)
 
     def _execute_probe(self, connection, row) -> dict[str, object]:
         probes = self._require_probes()
@@ -281,6 +324,12 @@ class CleanupService:
             connection.commit()
             raise CleanupError(code)
 
+        return self._perform_recycle(
+            connection, row, record["absolute_path"], plan, probes=probes)
+
+    def _perform_recycle(self, connection, row, path: str,
+                         plan: dict[str, object], *,
+                         probes: ControlledProbeRegistry | None) -> dict[str, object]:
         execution_time = datetime.now(timezone.utc).isoformat()
         connection.execute("""UPDATE cleanup_execution_runs SET status = 'executing',
             execute_time = ?, execute_size = ?, execute_mtime = ?, checks_json = ?,
@@ -290,33 +339,38 @@ class CleanupService:
                               json.dumps(plan["checks"]), row["id"]))
         connection.commit()
         try:
-            result = self.recycle_backend.recycle(str(record["absolute_path"]))
+            result = self.recycle_backend.recycle(str(path))
         except RecycleError as exc:
-            target_exists = os.path.lexists(str(record["absolute_path"]))
+            target_exists = os.path.lexists(str(path))
             mutation = "none" if target_exists else "unknown"
             connection.execute("""UPDATE cleanup_execution_runs SET status = 'failed',
                 recycle_api_outcome = ?, final_result = 'recycle_failed', failure_code = ?,
                 target_mutation = ? WHERE id = ?""",
                 (exc.code, exc.code, mutation, row["id"]))
-            probes.update_state(connection, row["probe_id"], "failed", exc.code)
+            if probes is not None:
+                probes.update_state(connection, row["probe_id"], "failed", exc.code)
             connection.commit()
             raise CleanupError(exc.code) from exc
 
-        if not result.original_path_absent or os.path.lexists(str(record["absolute_path"])):
+        if not result.original_path_absent or os.path.lexists(str(path)):
             code = "RECYCLE_ORIGINAL_PATH_REMAINS"
             connection.execute("""UPDATE cleanup_execution_runs SET status = 'failed',
                 recycle_api_outcome = ?, final_result = 'recycle_failed', failure_code = ?,
                 target_mutation = 'none' WHERE id = ?""",
                 (code, code, row["id"]))
-            probes.update_state(connection, row["probe_id"], "failed", code)
+            if probes is not None:
+                probes.update_state(connection, row["probe_id"], "failed", code)
             connection.commit()
             raise CleanupError(code)
         connection.execute("""UPDATE cleanup_execution_runs SET status = 'completed',
             recycle_api_outcome = 'success', final_result = 'recycled', failure_code = NULL,
-            target_mutation = 'recycle_bin' WHERE id = ?""", (row["id"],))
-        probes.update_state(connection, row["probe_id"], "recycled")
+            target_mutation = 'recycle_bin', actual_action = 'recycle' WHERE id = ?""",
+            (row["id"],))
+        if probes is not None:
+            probes.update_state(connection, row["probe_id"], "recycled")
         connection.commit()
         return {"execution_id": row["id"], "probe_id": row["probe_id"],
+                "candidate_id": row["candidate_id"],
                 "status": "completed", "final_result": "recycled",
                 "target_mutation": "recycle_bin", "original_path_absent": True,
                 "message": "已移入回收站"}

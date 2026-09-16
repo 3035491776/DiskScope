@@ -51,7 +51,7 @@ class SnapshotStoreTests(unittest.TestCase):
     def test_schema_and_complete_metadata_without_file_contents(self):
         snapshot_id = self.save("one")
         with closing(sqlite3.connect(self.database)) as connection:
-            self.assertEqual(connection.execute("PRAGMA user_version").fetchone()[0], 4)
+            self.assertEqual(connection.execute("PRAGMA user_version").fetchone()[0], 5)
             self.assertEqual(connection.execute("SELECT COUNT(*) FROM directory_snapshots").fetchone()[0], 2)
             self.assertEqual(connection.execute("SELECT COUNT(*) FROM file_snapshots").fetchone()[0], 1)
             self.assertEqual(connection.execute("SELECT scope_key FROM scan_snapshots").fetchone()[0], "project_workspace")
@@ -110,7 +110,7 @@ class SnapshotStoreTests(unittest.TestCase):
 
     def test_version_and_corruption_are_unavailable_without_rebuild(self):
         with closing(sqlite3.connect(self.database)) as connection:
-            connection.execute("PRAGMA user_version = 5")
+            connection.execute("PRAGMA user_version = 6")
         with self.assertRaises(SnapshotStoreError) as caught:
             self.store.list()
         self.assertEqual(caught.exception.code, "SNAPSHOT_DATABASE_VERSION_UNSUPPORTED")
@@ -204,7 +204,9 @@ class SnapshotLifecycleTests(unittest.TestCase):
         self.assertIsNotNone(manager.result(created["scan_id"]))
         status_code, _, health = asyncio.run(request("GET", "/health"))
         self.assertEqual(status_code, 200)
-        self.assertEqual(health["mode"], "read_only")
+        self.assertEqual(health["mode"], "guarded_cleanup")
+        self.assertEqual(health["capabilities"]["scan"], "read_only")
+        self.assertEqual(health["capabilities"]["cleanup"], "guarded_recycle")
         headers = {"cookie": f"{COOKIE_NAME}={local_session.session_token}"}
         with patch("app.api.snapshots.snapshot_store", self.store):
             status_code, _, payload = asyncio.run(request("GET", "/api/v1/snapshots", headers=headers))

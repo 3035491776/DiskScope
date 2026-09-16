@@ -41,12 +41,12 @@ def wait_for_health(process: subprocess.Popen[bytes], timeout: float = 15.0) -> 
         try:
             with urllib.request.urlopen(HEALTH_URL, timeout=0.5) as response:
                 payload = json.load(response)
-                if response.status == 200 and payload == {
-                    "status": "ok",
-                    "app": "DiskScope",
-                    "version": "0.1.0",
-                    "mode": "read_only",
-                }:
+                if (response.status == 200 and payload.get("status") == "ok" and
+                        payload.get("app") == "DiskScope" and
+                        payload.get("version") == "0.1.0" and
+                        payload.get("mode") == "guarded_cleanup" and
+                        payload.get("capabilities", {}).get("scan") == "read_only" and
+                        payload.get("capabilities", {}).get("cleanup") == "guarded_recycle"):
                     return
         except (OSError, ValueError, urllib.error.URLError):
             pass

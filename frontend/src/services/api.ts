@@ -2,7 +2,12 @@ export interface HealthResponse {
   status: 'ok'
   app: 'DiskScope'
   version: string
-  mode: 'read_only'
+  mode: 'guarded_cleanup'
+  capabilities: {
+    scan: 'read_only'
+    cleanup: 'guarded_recycle'
+    cleanup_scope: 'current_user_localappdata_temp_single_file'
+  }
 }
 
 export async function getHealth(): Promise<HealthResponse> {
@@ -22,7 +27,12 @@ export async function getHealth(): Promise<HealthResponse> {
     !('status' in payload) || payload.status !== 'ok' ||
     !('app' in payload) || payload.app !== 'DiskScope' ||
     !('version' in payload) || typeof payload.version !== 'string' ||
-    !('mode' in payload) || payload.mode !== 'read_only'
+    !('mode' in payload) || payload.mode !== 'guarded_cleanup' ||
+    !('capabilities' in payload) || typeof payload.capabilities !== 'object' || payload.capabilities === null ||
+    !('scan' in payload.capabilities) || payload.capabilities.scan !== 'read_only' ||
+    !('cleanup' in payload.capabilities) || payload.capabilities.cleanup !== 'guarded_recycle' ||
+    !('cleanup_scope' in payload.capabilities) ||
+      payload.capabilities.cleanup_scope !== 'current_user_localappdata_temp_single_file'
   ) {
     throw new Error('服务响应格式不正确')
   }
@@ -175,7 +185,12 @@ async function apiJson<T>(url: string, init?: RequestInit): Promise<T> {
     ...init,
   })
   if (!response.ok) {
-    throw new Error(`服务返回 ${response.status}`)
+    let detail = `服务返回 ${response.status}`
+    try {
+      const payload = await response.json() as { detail?: unknown }
+      if (typeof payload.detail === 'string') detail = payload.detail
+    } catch { /* Keep the HTTP status when the body is not JSON. */ }
+    throw new Error(detail)
   }
   return response.json() as Promise<T>
 }
@@ -330,13 +345,16 @@ export interface CleanupCandidate {
   source_rule_id: string
   rule_version: string
   group_id: string | null
-  execution_hint?: 'prepare_available' | 'suggestion_only'
+  snapshot_mtime?: string | null
+  execution_state?: 'available' | 'recycled'
+  execution_hint?: 'prepare_available' | 'suggestion_only' | 'history_only'
   execution_policy?: {
-    eligibility: 'ineligible' | 'eligible_for_review'
+    eligibility: 'ineligible' | 'eligible_for_recycle'
     allowed_actions: string[]
     block_reasons: string[]
+    policy_rule_id: 'USER_TEMP_STALE_FILE_V1'
     required_checks: string[]
-    real_execution_enabled: false
+    real_execution_enabled: boolean
   }
 }
 
@@ -349,7 +367,14 @@ export interface CleanupPreflight {
   snapshot_mtime: string | null
   current_size: number | null
   current_mtime: string | null
+  age_days?: number | null
+  category?: string | null
+  risk_level?: string | null
+  confidence?: string | null
+  policy_rule_id?: string
+  execution_rule_id?: string
   eligibility: 'ineligible' | 'eligible_for_review' | 'eligible_for_recycle'
+  allowed_actions?: string[]
   checks: { check: string; passed: boolean }[]
   block_reasons: string[]
   planned_action: 'none' | 'dry_run_only' | 'recycle'
@@ -368,8 +393,22 @@ export interface CleanupExecution {
   candidate_id: string | null
   probe_id: string | null
   prepare_time: string
+  execute_time: string | null
   original_path: string
   requested_action: string
+  actual_action: string | null
+  planned_action: string
+  snapshot_id: string | null
+  snapshot_size: number
+  snapshot_mtime: string | null
+  preflight_size: number | null
+  preflight_mtime: string | null
+  execute_size: number | null
+  execute_mtime: string | null
+  policy_rule_id: string
+  candidate_category: string | null
+  candidate_risk: string | null
+  candidate_confidence: string | null
   status: string
   failure_code: string | null
   final_result: string | null
@@ -390,7 +429,8 @@ export interface ControlledProbe {
 
 export interface CleanupExecutionResult {
   execution_id: string
-  probe_id: string
+  probe_id: string | null
+  candidate_id: string | null
   status: 'completed'
   final_result: 'recycled'
   target_mutation: 'recycle_bin'

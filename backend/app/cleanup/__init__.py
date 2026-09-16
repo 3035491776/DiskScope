@@ -1,1 +1,1 @@
-"""M6 gate and M6.1 controlled-probe-only Windows Recycle Bin execution."""
+"""M6.2 deny-by-default, single-file Windows Recycle Bin execution."""

@@ -85,7 +85,12 @@ class WindowsRecycleBackend:
 
         def require_ok(result: int, code: str) -> None:
             if _failed_hresult(result):
-                raise RecycleError(code, result & 0xFFFFFFFF)
+                hresult = result & 0xFFFFFFFF
+                if hresult == 0x80070005:
+                    raise RecycleError("ACCESS_DENIED", hresult)
+                if hresult in {0x80070020, 0x80070021}:
+                    raise RecycleError("TARGET_IN_USE", hresult)
+                raise RecycleError(code, hresult)
 
         try:
             # IFileOperation is supported only from a single-threaded apartment.

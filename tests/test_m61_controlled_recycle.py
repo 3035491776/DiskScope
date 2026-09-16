@@ -268,7 +268,38 @@ class ControlledRecycleTests(unittest.TestCase):
             migrated = connection.execute(
                 "SELECT * FROM cleanup_execution_runs WHERE id = 'old-audit'").fetchone()
             self.assertIsNotNone(migrated)
-            self.assertEqual(connection.execute("PRAGMA user_version").fetchone()[0], 4)
+            self.assertEqual(connection.execute("PRAGMA user_version").fetchone()[0], 5)
+            self.assertEqual(migrated["policy_rule_id"], "USER_TEMP_STALE_FILE_PREFLIGHT_V1")
+            self.assertEqual(connection.execute("PRAGMA integrity_check").fetchone()[0], "ok")
+            self.assertEqual(connection.execute("PRAGMA foreign_key_check").fetchall(), [])
+
+    def test_v4_to_v5_migration_preserves_execution_audit(self):
+        with self.store._connection() as connection:
+            connection.commit()
+        prepared_at = datetime.now(timezone.utc).isoformat()
+        with closing(sqlite3.connect(self.store.database)) as connection:
+            connection.execute("PRAGMA foreign_keys = OFF")
+            connection.execute("DROP TABLE cleanup_execution_runs")
+            SnapshotStore._create_execution_table_v4(connection)
+            connection.execute("""INSERT INTO cleanup_execution_runs (
+                id, token_hash, candidate_id, probe_id, snapshot_id, scope_key,
+                rule_version, requested_action, planned_action, eligibility,
+                prepare_time, status, original_path, snapshot_size,
+                checks_json, block_reasons_json, policy_decision, token_outcome,
+                target_mutation) VALUES (
+                'v4-audit', NULL, 'legacy-candidate', NULL, NULL, 'system_drive_c',
+                'rules-v1.0.0', 'recycle', 'dry_run_only', 'ineligible', ?, 'blocked',
+                'C:\\Windows\\blocked.bin', 1, '[]', '["EXECUTION_PROTECTED_PATH"]',
+                'ineligible', 'not_issued', 'none')""", (prepared_at,))
+            connection.execute("PRAGMA user_version = 4")
+            connection.commit()
+        with self.store._connection() as connection:
+            migrated = connection.execute(
+                "SELECT * FROM cleanup_execution_runs WHERE id = 'v4-audit'").fetchone()
+            self.assertEqual(connection.execute("PRAGMA user_version").fetchone()[0], 5)
+            self.assertEqual(migrated["policy_rule_id"],
+                             "USER_TEMP_STALE_FILE_PREFLIGHT_V1")
+            self.assertIsNone(migrated["actual_action"])
             self.assertEqual(connection.execute("PRAGMA integrity_check").fetchone()[0], "ok")
             self.assertEqual(connection.execute("PRAGMA foreign_key_check").fetchall(), [])
 

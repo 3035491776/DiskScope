@@ -14,7 +14,12 @@ PROTECTED_ROOTS = frozenset({
 })
 PROTECTED_NAMES = frozenset({"hiberfil.sys", "pagefile.sys", "swapfile.sys"})
 MIN_BYTES = 1024 * 1024
-MIN_AGE_DAYS = 7
+MIN_AGE_DAYS = 30
+EXECUTION_RULE_ID = "USER_TEMP_STALE_FILE_V1"
+BLOCKED_EXTENSIONS = frozenset({
+    ".exe", ".dll", ".sys", ".drv", ".msi", ".msp", ".cab",
+    ".ps1", ".bat", ".cmd", ".com", ".scr", ".dmp",
+})
 REPARSE_FLAG = 0x400
 RESERVED_DOS_NAMES = frozenset({"con", "prn", "aux", "nul", *(f"com{i}" for i in range(1, 10)), *(f"lpt{i}" for i in range(1, 10))})
 
@@ -43,10 +48,24 @@ def _mtime(info: os.stat_result) -> str:
 class ExecutionPolicyEngine:
     def __init__(self, user_profile: str | None = None,
                  lstat: Callable[[str], os.stat_result] = os.lstat,
-                 now: Callable[[], datetime] = lambda: datetime.now(timezone.utc)):
-        self.user_profile = user_profile if user_profile is not None else os.environ.get("USERPROFILE", "")
+                 now: Callable[[], datetime] = lambda: datetime.now(timezone.utc),
+                 local_app_data: str | None = None):
+        explicit_profile = user_profile is not None
+        self.user_profile = user_profile if explicit_profile else os.environ.get("USERPROFILE", "")
+        self.local_app_data = local_app_data if local_app_data is not None else (
+            ntpath.join(self.user_profile, "AppData", "Local") if explicit_profile
+            else os.environ.get("LOCALAPPDATA", "")
+        )
         self.lstat = lstat
         self.now = now
+
+    def _temp_parts(self) -> tuple[str, ...] | None:
+        profile_parts = _parts(self.user_profile)
+        local_parts = _parts(self.local_app_data)
+        if (not profile_parts or not local_parts or
+                local_parts != (*profile_parts, "appdata", "local")):
+            return None
+        return (*local_parts, "temp")
 
     def static_reasons(self, candidate: Mapping[str, object], scope_key: str) -> list[str]:
         path = str(candidate.get("display_path", ""))
@@ -61,23 +80,47 @@ class ExecutionPolicyEngine:
             reasons.append("EXECUTION_PROTECTED_PATH")
         if candidate.get("object_type") != "file":
             reasons.append("DIRECTORY_EXECUTION_NOT_SUPPORTED")
-        profile_parts = _parts(self.user_profile)
-        if (not parts or not profile_parts or
-                parts[:len(profile_parts) + 3] != (*profile_parts, "appdata", "local", "temp") or
-                len(parts) <= len(profile_parts) + 3):
+        temp_parts = self._temp_parts()
+        if (not parts or not temp_parts or parts[:len(temp_parts)] != temp_parts or
+                len(parts) <= len(temp_parts)):
             reasons.append("EXECUTION_CURRENT_USER_TEMP_ONLY")
-        if (candidate.get("category") != "temporary_file" or
-                candidate.get("confidence") not in {"medium", "high"} or
-                candidate.get("risk_level") not in {"low", "review"} or
-                candidate.get("reason_code") != "STALE_USER_TEMP_FILE"):
+        if candidate.get("category") != "temporary_file":
+            reasons.append("EXECUTION_CATEGORY_BLOCKED")
+        if candidate.get("confidence") != "high":
+            reasons.append("EXECUTION_CONFIDENCE_BLOCKED")
+        if candidate.get("risk_level") != "low":
+            reasons.append("EXECUTION_RISK_BLOCKED")
+        if candidate.get("reason_code") != "STALE_USER_TEMP_FILE":
             reasons.append("EXECUTION_POLICY_BLOCKED")
+        if parts and ntpath.splitext(parts[-1])[1].casefold() in BLOCKED_EXTENSIONS:
+            reasons.append("EXECUTION_EXTENSION_BLOCKED")
         if int(candidate.get("logical_bytes", 0)) < MIN_BYTES:
             reasons.append("EXECUTION_SIZE_BELOW_THRESHOLD")
-        return reasons
+        return list(dict.fromkeys(reasons))
+
+    def _timestamp_reasons(self, value: str | None) -> tuple[list[str], float | None]:
+        try:
+            timestamp = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+            if timestamp.tzinfo is None:
+                raise ValueError
+            age_seconds = (self.now() - timestamp.astimezone(timezone.utc)).total_seconds()
+        except (ValueError, TypeError, OverflowError, OSError):
+            return ["EXECUTION_TIMESTAMP_INVALID"], None
+        if age_seconds < 0:
+            return ["EXECUTION_TIMESTAMP_INVALID"], age_seconds / 86400
+        if age_seconds < MIN_AGE_DAYS * 86400:
+            return ["EXECUTION_FILE_TOO_RECENT"], age_seconds / 86400
+        return [], age_seconds / 86400
+
+    def discovery_reasons(self, candidate: Mapping[str, object], scope_key: str,
+                          snapshot_mtime: str | None) -> list[str]:
+        reasons = self.static_reasons(candidate, scope_key)
+        timestamp_reasons, _ = self._timestamp_reasons(snapshot_mtime)
+        return list(dict.fromkeys([*reasons, *timestamp_reasons]))
 
     def preflight(self, candidate: Mapping[str, object], scope_key: str,
                   snapshot_mtime: str | None) -> dict[str, object]:
-        reasons = self.static_reasons(candidate, scope_key)
+        reasons = self.discovery_reasons(candidate, scope_key, snapshot_mtime)
         path = str(candidate.get("display_path", ""))
         checks: list[dict[str, object]] = []
         fingerprint = None
@@ -110,6 +153,7 @@ class ExecutionPolicyEngine:
                         current_size = info.st_size
                         current_mtime = _mtime(info)
                         fingerprint = {"size": info.st_size, "mtime_ns": info.st_mtime_ns,
+                                       "ctime_ns": getattr(info, "st_ctime_ns", 0),
                                        "mode": stat.S_IFMT(info.st_mode), "device": info.st_dev,
                                        "inode": info.st_ino,
                                        "attributes": getattr(info, "st_file_attributes", 0)}
@@ -127,15 +171,21 @@ class ExecutionPolicyEngine:
                 same_mtime = False
             if current_size != int(candidate.get("logical_bytes", -1)) or not same_mtime:
                 reasons.append("TARGET_CHANGED_SINCE_SCAN")
-            if (self.now() - datetime.fromtimestamp(fingerprint["mtime_ns"] / 1e9, timezone.utc)).total_seconds() < MIN_AGE_DAYS * 86400:
-                reasons.append("EXECUTION_FILE_TOO_RECENT")
+            current_timestamp_reasons, age_days = self._timestamp_reasons(current_mtime)
+            reasons.extend(current_timestamp_reasons)
+        else:
+            age_days = None
         checks.append({"check": "current_filesystem_metadata", "passed": fingerprint is not None})
         checks.append({"check": "snapshot_fingerprint", "passed": fingerprint is not None and "TARGET_CHANGED_SINCE_SCAN" not in reasons})
         return {"candidate_id": candidate.get("candidate_id"), "current_path": path,
-                "execution_rule_id": "USER_TEMP_STALE_FILE_PREFLIGHT_V1",
+                "execution_rule_id": EXECUTION_RULE_ID, "policy_rule_id": EXECUTION_RULE_ID,
                 "snapshot_size": candidate.get("logical_bytes"), "snapshot_mtime": snapshot_mtime,
                 "current_size": current_size, "current_mtime": current_mtime,
-                "eligibility": "eligible_for_review" if not reasons else "ineligible",
+                "age_days": age_days,
+                "category": candidate.get("category"), "risk_level": candidate.get("risk_level"),
+                "confidence": candidate.get("confidence"),
+                "eligibility": "eligible_for_recycle" if not reasons else "ineligible",
+                "allowed_actions": ["recycle"] if not reasons else [],
                 "checks": checks, "block_reasons": list(dict.fromkeys(reasons)),
-                "planned_action": "dry_run_only" if not reasons else "none",
+                "planned_action": "recycle" if not reasons else "none",
                 "fingerprint": fingerprint}
