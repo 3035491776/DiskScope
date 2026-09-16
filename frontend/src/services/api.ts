@@ -208,7 +208,8 @@ export async function establishSession(): Promise<boolean> {
   const fragment = new URLSearchParams(window.location.hash.slice(1))
   const launchToken = fragment.get('bootstrap')
   if (launchToken) {
-    window.history.replaceState(null, '', window.location.pathname + window.location.search)
+    const cleanUrl = window.location.pathname + window.location.search
+    window.history.replaceState(window.history.state, '', cleanUrl)
     const response = await fetch('/api/v1/session/bootstrap', {
       method: 'POST',
       credentials: 'same-origin',
@@ -219,6 +220,9 @@ export async function establishSession(): Promise<boolean> {
     if (!response.ok) {
       throw new Error(`会话初始化失败：${response.status}`)
     }
+    // Vue Router may finish its initial navigation while the exchange is in
+    // flight. Clean the fragment again after success without changing route.
+    window.history.replaceState(window.history.state, '', cleanUrl)
     return true
   }
   const state = await apiJson<{ ready: boolean }>('/api/v1/session')

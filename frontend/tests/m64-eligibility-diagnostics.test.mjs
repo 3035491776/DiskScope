@@ -41,7 +41,7 @@ test('diagnostics API is GET-only, scoped, bounded, filtered, and sorted by enum
 })
 
 test('summary explains zero eligibility, reason semantics, coverage, and both rule versions', () => {
-  assert.match(page, /处理资格诊断/)
+  assert.match(page, /处理资格说明/)
   assert.match(page, /当前已分析候选中，没有文件同时满足所有处理条件/)
   assert.match(page, /资格统计仅覆盖本次持久化的/)
   assert.match(page, /不能代表整个 Temp 的绝对结论/)

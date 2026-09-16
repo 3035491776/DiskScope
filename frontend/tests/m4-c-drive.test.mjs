@@ -25,10 +25,11 @@ test('C scan request uses only the fixed scope and explicit acknowledgement', as
 
 test('C entry requires confirmation while D remains locked in the dashboard', () => {
   const dashboard = readFileSync(new URL('../src/views/Dashboard.vue', import.meta.url), 'utf8')
+  const controls = readFileSync(new URL('../src/components/ScanControls.vue', import.meta.url), 'utf8')
   assert.match(dashboard, /分析 C 盘/)
-  assert.match(dashboard, /分析 Windows C盘/)
-  assert.match(dashboard, /开始只读分析/)
-  assert.match(dashboard, /确认层|confirmCDrive/)
+  assert.match(controls, /分析 Windows C盘/)
+  assert.match(controls, /开始只读分析/)
+  assert.match(controls, /confirmCDrive/)
   assert.match(dashboard, /整盘扫描尚未开放/)
   assert.match(dashboard, /磁盘已用空间/)
   assert.match(dashboard, /扫描可见空间/)

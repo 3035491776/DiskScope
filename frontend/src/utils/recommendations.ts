@@ -62,7 +62,7 @@ export function executionReasonLabel(code: string): string {
     EXECUTION_CATEGORY_BLOCKED: '仅高置信临时文件可以进入处理预检。',
     EXECUTION_CONFIDENCE_BLOCKED: '识别置信度不足，处理已阻止。',
     EXECUTION_RISK_BLOCKED: '该候选的风险等级不符合首批处理策略。',
-    EXECUTION_POLICY_BLOCKED: '该候选未命中 USER_TEMP_STALE_FILE_V1，处理已阻止。',
+    EXECUTION_POLICY_BLOCKED: '该候选不符合当前受保护处理规则，处理已阻止。',
     EXECUTION_SIZE_BELOW_THRESHOLD: '文件小于 1 MiB，不进入首批处理范围。',
     EXECUTION_PATH_BLOCKED: '文件路径无法通过规范化边界检查。',
     EXECUTION_SCOPE_BLOCKED: '该候选不属于 Windows C: 已保存扫描范围。',

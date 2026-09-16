@@ -35,7 +35,7 @@ test('Temp discovery UI states metadata-only coverage and never auto-executes', 
   assert.match(controls, /扫描不会删除文件/)
   assert.match(status, /file_metadata_coverage/)
   assert.match(history, /current_user_temp/)
-  assert.match(recommendations, /符合 M6\.2 门禁/)
+  assert.match(recommendations, /符合处理条件/)
   assert.match(recommendations, /仅只读评估/)
   assert.doesNotMatch(recommendations, /watch\([^)]*scopeKey[^]*executeCleanup/)
   assert.doesNotMatch(recommendations, /批量处理|全部处理|自动处理/)

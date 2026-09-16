@@ -12,8 +12,11 @@ export const useScanStore = defineStore('scan', () => {
   const serviceState = ref<ServiceState>('checking')
   const health = ref<HealthResponse | null>(null)
   const sessionReady = ref(false)
-  const selectedTarget = ref<ScanTarget>('fixture')
-  const resultTarget = ref<ScanTarget>('fixture')
+  // selectedTarget is only the user's next scan choice. resultTarget is the
+  // independently browsed/restored result source.
+  const selectedTarget = ref<ScanTarget>('user_temp')
+  const resultTarget = ref<ScanTarget>('user_temp')
+  const historyTarget = ref<ScanTarget | null>(null)
   const scan = ref<ScanStatus | null>(null)
   const recentCompleted = ref<ScanStatus | null>(null)
   const result = ref<ResolvedResult | null>(null)
@@ -46,6 +49,9 @@ export const useScanStore = defineStore('scan', () => {
     for (const target of targets) {
       await loadResult(target)
       if (!result.value || result.value.source_type !== 'none' || result.value.storage_status === 'unavailable') break
+    }
+    if (result.value?.source_type === 'none' && resultTarget.value !== 'user_temp') {
+      await loadResult('user_temp')
     }
   }
 
@@ -110,7 +116,6 @@ export const useScanStore = defineStore('scan', () => {
         : latest.scope_key === 'current_user_temp' ? 'user_temp'
           : latest.scope_key === 'project_workspace' ? 'project' : 'fixture'
       resultTarget.value = target
-      selectedTarget.value = target
       if (isActive(latest) || latest.snapshot_status === 'pending') {
         stopPolling()
         timer = setInterval(() => void refreshScan(), 400)
@@ -175,7 +180,7 @@ export const useScanStore = defineStore('scan', () => {
   }
 
   return {
-    serviceState, health, sessionReady, selectedTarget, resultTarget, scan,
+    serviceState, health, sessionReady, selectedTarget, resultTarget, historyTarget, scan,
     recentCompleted, result, resultLoading, volumes, volumesState, message, starting, checkService,
     initialize, reconnect, loadVolumes, loadResult, startScan, requestCancel, refreshScan,
   }

@@ -1,13 +1,13 @@
 # DiskScope
 
-DiskScope 是 Windows 磁盘空间诊断工具。当前状态为 **V0.1 / M6.4 处理资格诊断**。C: 与当前用户 Temp 扫描保持 metadata-only；已有 M6.2 执行门只允许逐个确认的严格合格文件进入 Windows 回收站。
+DiskScope 是安全、低影响、可解释的 Windows 磁盘空间诊断工具。当前状态为 **V0.1 / M7 产品稳定与体验收口**。C: 与当前用户 Temp 扫描保持 metadata-only；受保护执行门仍只允许逐个确认的严格合格文件进入 Windows 回收站。
 
 ## 当前实现
 
 - FastAPI 后端：`GET /health` 返回 `guarded_cleanup` 模式，并分别声明只读扫描与受保护回收站能力。
 - Vue 3 + TypeScript + Vite 页面：总览、空间分析、大文件与目录、扫描状态、历史与变化、空间建议、设置与说明；实际请求 `/health` 显示后端状态。
 - 只读扫描器：流式读取元数据、目录聚合、Top-K、错误摘要和协作取消；完成结果保存为 SQLite 快照，重启后仍可浏览。
-- 固定扫描入口：选择 fixture、项目工作区或服务端解析的当前用户 `%LOCALAPPDATA%\Temp`；C: 只可从容量卡片确认后启动专用只读扫描。Temp 入口不接受前端路径，且扫描不会删除文件。
+- 固定扫描入口：普通用户优先选择 Windows C: 或服务端解析的当前用户 `%LOCALAPPDATA%\Temp`；C: 必须经确认层启动专用只读扫描。Fixture 与项目工作区保留在默认关闭的开发与测试区域。Temp 入口不接受前端路径，且扫描不会删除文件。
 - 本机固定卷容量卡片：`GET /api/v1/volumes` 读取容量，不启动扫描，也不列出网络盘。图表只绘制获准范围的扫描结果。
 - M2 页面和 API 口径见 [docs/m2-space-analysis.md](docs/m2-space-analysis.md)。
 - M3 在 `data/diskscope.db` 保存完成扫描的目录聚合与 Top-K 文件元数据；“历史与变化”页面比较相同固定范围的两次扫描。数据模型、增长口径、保留策略和故障隔离见 [docs/m3-snapshots-growth.md](docs/m3-snapshots-growth.md)。
@@ -19,7 +19,8 @@ DiskScope 是 Windows 磁盘空间诊断工具。当前状态为 **V0.1 / M6.4 �
 - M6.2 只允许已持久化候选中命中 `USER_TEMP_STALE_FILE_V1` 的单个普通文件：当前用户 `%LOCALAPPDATA%\Temp`、至少 30 天、高置信临时文件、低风险且达到 1 MiB。Prepare 和 Execute 都重新验证，只能移入 Windows 回收站，无永久删除回退。详见 [docs/m6.2-limited-user-temp-cleanup.md](docs/m6.2-limited-user-temp-cleanup.md)。
 - M6.3 增加固定 `current_user_temp` metadata-only 扫描，以 10,000 项硬上限保存最大与最旧文件的确定性混合元数据，并明确报告完整或受限覆盖。结果进入独立 Snapshot、M5 候选分析和 M6.2 只读资格评估；不自动 prepare、签发 token 或执行。详见 [docs/m6.3-user-temp-candidate-discovery.md](docs/m6.3-user-temp-candidate-discovery.md)。
 - M6.4 由 `ExecutionPolicyEngine` 返回结构化、确定性的 `PolicyDecision`，通过只读 API 和空间建议页解释候选为什么符合或不符合 guarded cleanup policy，并分别统计主要原因与全部原因及对应字节数。诊断基于历史快照元数据，不是执行授权，不会自动 prepare、签发 token 或执行。详见 [docs/m6.4-eligibility-diagnostics.md](docs/m6.4-eligibility-diagnostics.md)。
-- Low-Impact `standard` 策略：单枚举 worker、禁止跨卷和 reparse 跟随；开发区展示进程范围资源指标。设计与口径见 [docs/low-impact-scan.md](docs/low-impact-scan.md)。
+- M7 分离当前结果、下一次扫描范围和 History 比较范围，收拢 Recommendations 信息层级，完善覆盖语义、Dialog 键盘可访问性和启动 fragment 清理；不改变 M6 策略与执行边界。详见 [docs/m7-product-stabilization.md](docs/m7-product-stabilization.md)。
+- Low-Impact `standard` 策略：单枚举 worker、禁止跨卷和 reparse 跟随；扫描状态展示必要的进程资源概览，内部标识留在技术详情。设计与口径见 [docs/low-impact-scan.md](docs/low-impact-scan.md)。
 - `setup.bat`：检查本机 Python 和 Node.js，创建项目 `.venv`，安装依赖并构建前端。
 - `start.bat`：调用 `launcher/bootstrap.py` 启动后端，等待真实健康检查成功，再打开默认浏览器。
 

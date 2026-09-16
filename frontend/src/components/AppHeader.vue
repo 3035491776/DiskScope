@@ -4,12 +4,16 @@ import { useScanStore } from '../stores/scan'
 import { targetName } from '../utils/presentation'
 
 const store = useScanStore()
-const scope = computed(() => targetName(store.scan ? store.resultTarget : store.selectedTarget))
+const scope = computed(() => {
+  if (store.resultLoading) return '正在恢复…'
+  if (!store.result || store.result.source_type === 'none') return '尚无扫描结果'
+  return targetName(store.resultTarget)
+})
 </script>
 
 <template>
   <header class="app-header">
-    <div class="header-scope"><span class="header-label">当前扫描范围</span><strong>{{ scope }}</strong><span class="header-separator">/</span><span>仅固定测试范围</span></div>
+    <div class="header-scope"><span class="header-label">当前结果来源</span><strong>{{ scope }}</strong><span class="header-separator">/</span><span>仅扫描 DiskScope 明确支持的固定范围</span></div>
     <div class="header-state" role="status" aria-live="polite">
       <span class="state-dot" :class="store.serviceState"></span>
       <span v-if="store.serviceState === 'online'">服务运行正常</span>

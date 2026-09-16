@@ -2,7 +2,7 @@
 import { computed, onMounted, ref, watch } from 'vue'
 import EmptyState from '../components/EmptyState.vue'
 import { compareSnapshots, getSnapshots } from '../services/api'
-import type { SnapshotComparison, SnapshotSummary, DirectoryChange, LargeFileChange } from '../services/api'
+import type { SnapshotComparison, SnapshotSummary, DirectoryChange, LargeFileChange, ScanTarget } from '../services/api'
 import { useScanStore } from '../stores/scan'
 import { formatBytes, formatLocalTime, formatNumber } from '../utils/format'
 import { coverageWarning, formatDeltaBytes, formatDeltaPercent, historyEmptyMessage, historyErrorMessage } from '../utils/history'
@@ -17,9 +17,13 @@ const loading = ref(false)
 const comparing = ref(false)
 const error = ref('')
 const compareError = ref('')
+const historyTarget = computed<ScanTarget>({
+  get: () => store.historyTarget ?? store.resultTarget,
+  set: target => { store.historyTarget = target },
+})
 let loadSequence = 0
 let compareSequence = 0
-const scopeKey = computed(() => store.selectedTarget === 'c_drive' ? 'system_drive_c' : store.selectedTarget === 'user_temp' ? 'current_user_temp' : store.selectedTarget === 'project' ? 'project_workspace' : 'fixture_sample')
+const scopeKey = computed(() => historyTarget.value === 'c_drive' ? 'system_drive_c' : historyTarget.value === 'user_temp' ? 'current_user_temp' : historyTarget.value === 'project' ? 'project_workspace' : 'fixture_sample')
 
 async function loadHistory() {
   const sequence = ++loadSequence
@@ -81,8 +85,8 @@ const hasFileChanges = computed(() => fileGroups.value.some(group => group.items
 
 <template>
   <div class="page-heading"><div><p class="eyebrow">HISTORY / CHANGE</p><h1>历史与变化</h1><p class="page-description">比较同一固定范围的两次扫描，查看空间增长与 Top 大文件变化。</p></div><span class="read-only-chip">只读历史</span></div>
-  <section class="panel"><div class="panel-heading"><div><p class="eyebrow">SCAN SCOPE</p><h2>当前扫描范围 · {{ targetName(store.selectedTarget) }}</h2></div><button type="button" class="text-button" @click="loadHistory">刷新历史</button></div>
-    <div class="scan-controls"><label for="history-scope">查看范围</label><select id="history-scope" v-model="store.selectedTarget"><option value="fixture">Fixture Sample</option><option value="project">Project Workspace</option><option value="c_drive">Windows C:</option><option value="user_temp">当前用户临时文件</option></select></div>
+  <section class="panel"><div class="panel-heading"><div><p class="eyebrow">SCAN SCOPE</p><h2>历史范围 · {{ targetName(historyTarget) }}</h2></div><button type="button" class="text-button" @click="loadHistory">刷新历史</button></div>
+    <div class="scan-controls"><label for="history-scope">查看范围</label><select id="history-scope" v-model="historyTarget"><option value="c_drive">Windows C:</option><option value="user_temp">当前用户临时文件</option><optgroup label="开发与测试范围"><option value="fixture">Fixture Sample</option><option value="project">Project Workspace</option></optgroup></select></div>
     <p class="inline-note">只显示该范围的历史；无法跨范围组合比较。</p>
   </section>
   <p v-if="error" class="panel inline-error history-message" role="alert">{{ error }}</p>
@@ -90,7 +94,7 @@ const hasFileChanges = computed(() => fileGroups.value.some(group => group.items
   <EmptyState v-else-if="snapshots.length === 0" title="暂无历史扫描" :description="historyEmptyMessage(0)" />
   <template v-else>
     <section class="panel table-panel"><div class="panel-heading"><div><p class="eyebrow">SNAPSHOTS</p><h2>历史扫描</h2></div><span class="subtle-label">最近 {{ snapshots.length }} 次 · 每范围保留 20 次</span></div>
-      <div class="table-scroll"><table><thead><tr><th>完成时间</th><th>逻辑空间</th><th>文件</th><th>目录</th><th>覆盖</th></tr></thead><tbody><tr v-for="snapshot in snapshots" :key="snapshot.snapshot_id"><td class="strong-cell">{{ formatLocalTime(snapshot.completed_at) }}</td><td>{{ formatBytes(snapshot.total_bytes) }}</td><td>{{ formatNumber(snapshot.file_count) }}</td><td>{{ formatNumber(snapshot.directory_count) }}</td><td>{{ snapshot.coverage === 'limited' ? '目录覆盖受限' : snapshot.persisted_file_count < snapshot.observed_file_count ? `文件元数据 ${formatNumber(snapshot.persisted_file_count)} / ${formatNumber(snapshot.observed_file_count)}` : '完整' }}</td></tr></tbody></table></div>
+      <div class="table-scroll"><table><thead><tr><th>完成时间</th><th>逻辑空间</th><th>文件</th><th>目录</th><th>覆盖</th></tr></thead><tbody><tr v-for="snapshot in snapshots" :key="snapshot.snapshot_id"><td class="strong-cell">{{ formatLocalTime(snapshot.completed_at) }}</td><td>{{ formatBytes(snapshot.total_bytes) }}</td><td>{{ formatNumber(snapshot.file_count) }}</td><td>{{ formatNumber(snapshot.directory_count) }}</td><td class="coverage-cell"><span>目录扫描覆盖：{{ snapshot.coverage === 'limited' ? '部分位置未覆盖' : '完整' }}</span><span v-if="scopeKey === 'current_user_temp'">文件元数据保存：{{ formatNumber(snapshot.persisted_file_count) }} / {{ formatNumber(snapshot.observed_file_count) }} · {{ snapshot.persisted_file_count < snapshot.observed_file_count ? '受限' : '完整' }}</span></td></tr></tbody></table></div>
     </section>
     <EmptyState v-if="snapshots.length === 1" title="等待第二次扫描" :description="historyEmptyMessage(1)" />
     <template v-else>
