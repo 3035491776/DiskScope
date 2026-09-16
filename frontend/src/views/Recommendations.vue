@@ -1,17 +1,25 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import EmptyState from '../components/EmptyState.vue'
-import { analyzeSnapshot, createControlledProbe, executeCleanup, getCandidateDetail, getCandidates, getCleanupExecutions, prepareCleanup, prepareControlledProbe } from '../services/api'
-import type { CandidateRun, CandidateSummary, CleanupCandidate, CleanupExecution, CleanupExecutionResult, ControlledProbe, EligibilitySummary, PreparedCleanup, SnapshotSummary } from '../services/api'
+import { analyzeSnapshot, createControlledProbe, executeCleanup, getCandidateDetail, getCandidates, getCleanupExecutions, getEligibilityDiagnosticCandidates, getEligibilityDiagnosticDetail, getEligibilityDiagnosticsSummary, prepareCleanup, prepareControlledProbe } from '../services/api'
+import type { CandidateRun, CandidateSummary, CleanupCandidate, CleanupExecution, CleanupExecutionResult, ControlledProbe, EligibilityDiagnosticCandidate, EligibilityDiagnosticDetail, EligibilityDiagnosticsListing, EligibilityDiagnosticsSummary, EligibilitySummary, PreparedCleanup, SnapshotSummary } from '../services/api'
 import { useScanStore } from '../stores/scan'
 import { formatBytes, formatLocalTime, formatNumber, formatSeconds } from '../utils/format'
-import { actionLabel, categoryLabel, confidenceLabel, coverageMessage, executionReasonLabel, executionStatus, riskLabel, topKMessage } from '../utils/recommendations'
+import { actionLabel, categoryLabel, confidenceLabel, coverageMessage, eligibilityDecisionLabel, executionReasonLabel, executionStatus, policyReasonExplanation, policyReasonTitle, riskLabel, topKMessage } from '../utils/recommendations'
 
 const store = useScanStore()
 const latestSnapshot = ref<SnapshotSummary | null>(null)
 const run = ref<CandidateRun | null>(null)
 const summary = ref<CandidateSummary | null>(null)
 const eligibility = ref<EligibilitySummary | null>(null)
+const diagnosticSummary = ref<EligibilityDiagnosticsSummary | null>(null)
+const diagnosticListing = ref<EligibilityDiagnosticsListing | null>(null)
+const diagnosticDetail = ref<EligibilityDiagnosticDetail | null>(null)
+const diagnosticFilter = ref<'all' | 'eligible' | 'blocked' | 'high_risk' | 'recent' | 'extension_blocked'>('all')
+const diagnosticSort = ref<'size_desc' | 'age_desc'>('size_desc')
+const diagnosticOffset = ref(0)
+const diagnosticLoading = ref(false)
+const diagnosticError = ref('')
 const scopeKey = ref<'system_drive_c' | 'current_user_temp'>('current_user_temp')
 const sections = ref<{ risk: CleanupCandidate['risk_level']; items: CleanupCandidate[]; total: number }[]>([])
 const selected = ref<CleanupCandidate | null>(null)
@@ -37,12 +45,44 @@ const probeResult = ref<CleanupExecutionResult | null>(null)
 const probeLoading = ref(false)
 const probeError = ref('')
 let requestNumber = 0
+let diagnosticRequestNumber = 0
+const diagnosticPageSize = 50
 
 const categories = computed(() => Object.keys(summary.value?.by_category ?? {}).sort())
 const currentRun = computed(() => run.value && latestSnapshot.value?.snapshot_id === run.value.snapshot_id)
+const diagnosticPage = computed(() => Math.floor(diagnosticOffset.value / diagnosticPageSize) + 1)
+const diagnosticPageCount = computed(() => Math.max(1, Math.ceil((diagnosticListing.value?.total ?? 0) / diagnosticPageSize)))
 const sectionTitles: Record<CleanupCandidate['risk_level'], string> = {
   review: '值得关注 · 需确认', low: '值得关注 · 低风险',
   high: '需要谨慎', protected: '系统管理 / 不建议手动处理',
+}
+
+async function loadDiagnostics(includeSummary = true) {
+  if (!store.sessionReady || !currentRun.value) return
+  const request = ++diagnosticRequestNumber
+  diagnosticLoading.value = true
+  diagnosticError.value = ''
+  try {
+    const listingPromise = getEligibilityDiagnosticCandidates({
+      scopeKey: scopeKey.value, limit: diagnosticPageSize, offset: diagnosticOffset.value,
+      filter: diagnosticFilter.value, sort: diagnosticSort.value,
+    })
+    const [nextSummary, nextListing] = await Promise.all([
+      includeSummary || !diagnosticSummary.value
+        ? getEligibilityDiagnosticsSummary(scopeKey.value)
+        : Promise.resolve(diagnosticSummary.value),
+      listingPromise,
+    ])
+    if (request !== diagnosticRequestNumber) return
+    diagnosticSummary.value = nextSummary
+    diagnosticListing.value = nextListing
+  } catch (cause) {
+    if (request === diagnosticRequestNumber) {
+      diagnosticError.value = cause instanceof Error ? cause.message : '无法读取处理资格诊断'
+    }
+  } finally {
+    if (request === diagnosticRequestNumber) diagnosticLoading.value = false
+  }
 }
 
 async function loadRecommendations(autoAnalyze = true) {
@@ -75,6 +115,7 @@ async function loadRecommendations(autoAnalyze = true) {
       { risk: 'review', items: initial.items, total: initial.total },
       ...risks.map((risk, index) => ({ risk, items: others[index]!.items, total: others[index]!.total })),
     ]
+    await loadDiagnostics(true)
   } catch (cause) {
     if (request === requestNumber) error.value = cause instanceof Error ? cause.message : '无法分析已保存快照'
   } finally {
@@ -82,23 +123,40 @@ async function loadRecommendations(autoAnalyze = true) {
   }
 }
 
-async function openDetail(item: CleanupCandidate) {
+async function openDetail(item: CleanupCandidate | EligibilityDiagnosticCandidate) {
   selected.value = null
   prepared.value = null
   candidateResult.value = null
   candidateExecutionError.value = ''
   members.value = []
+  diagnosticDetail.value = null
   detailError.value = ''
   detailLoading.value = true
   try {
-    const result = await getCandidateDetail(item.candidate_id, scopeKey.value)
+    const [result, diagnostics] = await Promise.all([
+      getCandidateDetail(item.candidate_id, scopeKey.value),
+      getEligibilityDiagnosticDetail(item.candidate_id, scopeKey.value),
+    ])
     selected.value = result.candidate
     members.value = result.members
+    diagnosticDetail.value = diagnostics
   } catch (cause) {
     detailError.value = cause instanceof Error ? cause.message : '无法读取识别依据'
   } finally {
     detailLoading.value = false
   }
+}
+
+function changeDiagnosticPage(direction: -1 | 1) {
+  const next = diagnosticOffset.value + direction * diagnosticPageSize
+  if (next < 0 || next >= (diagnosticListing.value?.total ?? 0)) return
+  diagnosticOffset.value = next
+  void loadDiagnostics(false)
+}
+
+function formatAge(days: number | null): string {
+  if (days === null || !Number.isFinite(days)) return '未知'
+  return `${days.toFixed(days >= 10 ? 1 : 2)} 天`
 }
 
 async function copyPath(path: string) {
@@ -203,11 +261,21 @@ async function recycleProbeTest() {
 watch(() => store.sessionReady, ready => { if (ready) void loadRecommendations() }, { immediate: true })
 watch(() => store.sessionReady, ready => { if (ready) void loadExecutionHistory() }, { immediate: true })
 watch([category, confidence], () => { if (store.sessionReady) void loadRecommendations(false) })
+watch([diagnosticFilter, diagnosticSort], () => {
+  diagnosticOffset.value = 0
+  if (store.sessionReady && currentRun.value) void loadDiagnostics(false)
+})
 watch(scopeKey, () => {
   category.value = ''
   confidence.value = ''
   selected.value = null
   prepared.value = null
+  diagnosticSummary.value = null
+  diagnosticListing.value = null
+  diagnosticDetail.value = null
+  diagnosticFilter.value = 'all'
+  diagnosticSort.value = 'size_desc'
+  diagnosticOffset.value = 0
   void loadRecommendations()
 })
 </script>
@@ -231,6 +299,39 @@ watch(scopeKey, () => {
   <template v-else-if="currentRun && summary">
     <div class="metric-grid"><div class="metric-card"><span>值得关注的空间</span><strong>{{ formatBytes(summary.candidate_bytes) }}</strong><small>候选元数据统计，不是可释放空间</small></div><div class="metric-card"><span>候选项目</span><strong>{{ formatNumber(summary.candidate_count) }}</strong><small>分组不重复计数成员</small></div><div class="metric-card"><span>符合 M6.2 门禁</span><strong>{{ formatNumber(eligibility?.eligible_count) }}</strong><small>{{ formatBytes(eligibility?.eligible_bytes) }} · 仅只读评估</small></div><div class="metric-card"><span>需要人工确认</span><strong>{{ formatNumber(summary.review_count) }}</strong><small>规则建议复核</small></div><div class="metric-card"><span>受保护项目</span><strong>{{ formatNumber(summary.protected_count) }}</strong><small>不计入值得关注空间</small></div></div>
     <p v-if="eligibility?.eligible_count" class="coverage-note">发现符合 USER_TEMP_STALE_FILE_V1 静态与历史元数据条件的真实候选。DiskScope 不会自动准备或执行，请先人工检查。</p>
+    <section v-if="diagnosticSummary" class="panel eligibility-diagnostics" aria-labelledby="eligibility-heading">
+      <div class="panel-heading"><div><p class="eyebrow">POLICY DIAGNOSTICS / READ ONLY</p><h2 id="eligibility-heading">处理资格诊断</h2></div><span class="read-only-chip">历史元数据诊断 · 不是执行授权</span></div>
+      <div class="metric-grid diagnostic-metrics">
+        <div class="metric-card"><span>已评估候选</span><strong>{{ formatNumber(diagnosticSummary.evaluated_candidate_count) }}</strong><small>本次候选分析范围</small></div>
+        <div class="metric-card"><span>符合当前条件</span><strong>{{ formatNumber(diagnosticSummary.eligible_count) }}</strong><small>{{ formatBytes(diagnosticSummary.eligible_bytes) }}</small></div>
+        <div class="metric-card"><span>被安全规则阻止</span><strong>{{ formatNumber(diagnosticSummary.blocked_count) }}</strong><small>{{ formatBytes(diagnosticSummary.blocked_bytes) }}</small></div>
+        <div class="metric-card"><span>评估异常</span><strong>{{ formatNumber(diagnosticSummary.evaluation_error_count) }}</strong><small>异常按不符合条件处理</small></div>
+      </div>
+      <p v-if="diagnosticSummary.eligible_count === 0" class="coverage-note"><strong>当前已分析候选中，没有文件同时满足所有处理条件。</strong> 这是保守策略在有限元数据覆盖下的诊断结果。</p>
+      <p v-else class="coverage-note">符合条件表示候选可以进入准备处理；执行前仍需重新核对文件当前状态，并由您逐个确认。</p>
+      <p v-if="diagnosticSummary.coverage.file_metadata_coverage === 'limited'" class="coverage-note">资格统计仅覆盖本次持久化的 {{ formatNumber(diagnosticSummary.coverage.persisted_file_count) }} / {{ formatNumber(diagnosticSummary.coverage.observed_file_count) }} 条文件元数据，不能代表整个 Temp 的绝对结论。</p>
+      <div class="diagnostic-policy-grid">
+        <div><span>候选识别规则版本</span><strong>{{ diagnosticSummary.candidate_rule_version }}</strong></div>
+        <div><span>执行策略</span><strong>{{ diagnosticSummary.policy_rule_id }}</strong></div>
+        <div><span>执行策略版本</span><strong>{{ diagnosticSummary.execution_policy_version }}</strong></div>
+        <div><span>评估依据</span><strong>{{ diagnosticSummary.evaluation_basis === 'snapshot_only' ? '仅保存的快照元数据' : '快照与当前元数据' }}</strong></div>
+      </div>
+      <div class="diagnostic-columns">
+        <div><h3>主要阻止原因</h3><p class="fine-print">每个候选只计入一个最高优先级原因，合计等于已评估候选数。</p><div class="reason-list"><div v-for="reason in diagnosticSummary.primary_reason_distribution" :key="reason.reason_code"><span><strong>{{ policyReasonTitle(reason.reason_code) }}</strong><small>{{ reason.reason_code }}</small></span><span>{{ formatNumber(reason.candidate_count) }} 项 · {{ formatBytes(reason.total_bytes) }}</span></div></div></div>
+        <div><h3>全部原因</h3><p class="fine-print">一个候选可同时有多个原因，因此此处数量之和可能高于候选数。</p><div class="reason-list"><div v-for="reason in diagnosticSummary.all_reason_distribution" :key="reason.reason_code"><span><strong>{{ policyReasonTitle(reason.reason_code) }}</strong><small>{{ reason.reason_code }}</small></span><span>{{ formatNumber(reason.candidate_count) }} 项 · {{ formatBytes(reason.total_bytes) }}</span></div></div></div>
+      </div>
+      <div class="diagnostic-toolbar" aria-label="资格诊断筛选与排序">
+        <label>筛选<select v-model="diagnosticFilter"><option value="all">全部</option><option value="eligible">可准备处理</option><option value="blocked">策略阻止</option><option value="high_risk">高风险</option><option value="recent">不足 30 天</option><option value="extension_blocked">扩展名阻止</option></select></label>
+        <label>排序<select v-model="diagnosticSort"><option value="size_desc">按大小降序</option><option value="age_desc">按文件年龄降序</option></select></label>
+      </div>
+      <p v-if="diagnosticLoading" class="inline-note" role="status">正在读取资格诊断…</p>
+      <p v-if="diagnosticError" class="inline-error" role="alert">{{ diagnosticError }}</p>
+      <div v-if="diagnosticListing" class="table-scroll">
+        <table class="diagnostic-table"><thead><tr><th>候选</th><th>大小</th><th>文件年龄</th><th>诊断</th><th></th></tr></thead><tbody><tr v-for="item in diagnosticListing.items" :key="item.candidate_id"><td><strong class="strong-cell">{{ item.file_name }}</strong><span class="path-cell" :title="item.display_path">{{ item.display_path }}</span></td><td class="size-cell">{{ formatBytes(item.logical_bytes) }}</td><td>{{ formatAge(item.age_days) }}</td><td><strong>{{ eligibilityDecisionLabel(item.decision.eligibility) }}</strong><span>{{ policyReasonTitle(item.decision.primary_reason) }}</span></td><td><button type="button" class="table-action" :aria-label="`查看 ${item.file_name} 的资格原因`" @click="openDetail(item)">查看原因</button></td></tr></tbody></table>
+        <p v-if="!diagnosticListing.items.length" class="inline-note">此筛选条件下暂无候选。</p>
+        <div class="diagnostic-pagination"><span>第 {{ diagnosticPage }} / {{ diagnosticPageCount }} 页 · 共 {{ formatNumber(diagnosticListing.total) }} 项</span><div><button type="button" class="text-button" :disabled="diagnosticOffset === 0 || diagnosticLoading" @click="changeDiagnosticPage(-1)">上一页</button><button type="button" class="text-button" :disabled="diagnosticOffset + diagnosticPageSize >= diagnosticListing.total || diagnosticLoading" @click="changeDiagnosticPage(1)">下一页</button></div></div>
+      </div>
+    </section>
     <section class="panel recommendation-filters"><div class="panel-heading"><div><p class="eyebrow">FILTER</p><h2>筛选识别结果</h2></div></div><div class="scan-controls"><label>类型<select v-model="category"><option value="">全部类型</option><option v-for="item in categories" :key="item" :value="item">{{ categoryLabel(item) }}</option></select></label><label>识别置信度<select v-model="confidence"><option value="">全部置信度</option><option value="high">高</option><option value="medium">中</option><option value="low">低</option></select></label></div></section>
     <section v-for="section in sections" :key="section.risk" class="panel recommendation-section"><div class="panel-heading"><div><p class="eyebrow">{{ section.risk.toUpperCase() }}</p><h2>{{ sectionTitles[section.risk] }}</h2></div><span class="subtle-label">{{ section.total }} 项<span v-if="section.total > section.items.length"> · 显示前 {{ section.items.length }} 项</span></span></div>
       <p v-if="!section.items.length" class="inline-note">此范围暂无匹配项目。</p>
@@ -240,7 +341,40 @@ watch(scopeKey, () => {
   <p v-if="detailLoading" class="inline-note" role="status">正在读取识别依据…</p>
   <p v-if="detailError" class="inline-error" role="alert">{{ executionReasonLabel(detailError) }}</p>
   <p v-if="candidateResult" class="coverage-note" role="status"><strong>已移入 Windows 回收站。</strong> 文件原始大小记录已保留；磁盘可用空间未必立即增加。</p>
-  <div v-if="selected" class="modal-backdrop" @click.self="selected = null"><section class="confirm-dialog recommendation-detail" role="dialog" aria-modal="true" aria-labelledby="recommendation-title"><p class="eyebrow">EVIDENCE / SAVED SNAPSHOT</p><h2 id="recommendation-title">{{ selected.title }}</h2><p>{{ selected.summary }}</p><div class="recommendation-tags"><span>{{ riskLabel(selected.risk_level) }}</span><span>置信度 {{ confidenceLabel(selected.confidence) }}</span><span>{{ categoryLabel(selected.category) }}</span></div><p class="path-cell" :title="selected.display_path">{{ selected.display_path }}</p><strong>{{ formatBytes(selected.logical_bytes) }}</strong><h3>识别依据</h3><ul><li v-for="evidence in selected.evidence" :key="evidence">{{ evidence }}</li></ul><p>{{ selected.explanation }}</p><p><strong>建议：</strong>{{ actionLabel(selected.recommended_action) }} <span v-if="selected.execution_hint !== 'prepare_available'">当前策略不允许处理该项目。</span></p><p class="fine-print">识别规则：{{ selected.source_rule_id }} · {{ selected.rule_version }} · {{ selected.reason_code }}</p><div v-if="members.length"><h3>分组成员（{{ members.length }}）</h3><div class="member-list"><div v-for="member in members" :key="member.candidate_id"><span class="path-cell" :title="member.display_path">{{ member.display_path }}</span><strong class="size-cell">{{ formatBytes(member.logical_bytes) }}</strong></div></div></div><p class="execution-status">{{ selected.execution_hint === 'prepare_available' ? '可准备处理 · 需重新核对当前文件' : executionStatus(selected) }}</p><ul v-if="selected.execution_policy?.block_reasons.length"><li v-for="reason in selected.execution_policy.block_reasons" :key="reason">{{ executionReasonLabel(reason) }}</li></ul><div class="confirm-actions"><button v-if="selected.execution_hint === 'prepare_available'" type="button" class="primary-button" :disabled="prepareLoading" @click="prepareSelected">{{ prepareLoading ? '正在检查…' : '准备处理' }}</button><button type="button" class="text-button" @click="copyPath(selected.display_path)">复制路径</button><button type="button" class="primary-button" @click="selected = null">关闭</button></div></section></div>
+  <div v-if="selected" class="modal-backdrop" @click.self="selected = null">
+    <section class="confirm-dialog recommendation-detail" role="dialog" aria-modal="true" aria-labelledby="recommendation-title">
+      <p class="eyebrow">EVIDENCE / SAVED SNAPSHOT</p><h2 id="recommendation-title">{{ selected.title }}</h2><p>{{ selected.summary }}</p>
+      <div class="recommendation-tags"><span>{{ riskLabel(selected.risk_level) }}</span><span>置信度 {{ confidenceLabel(selected.confidence) }}</span><span>{{ categoryLabel(selected.category) }}</span></div>
+      <p class="path-cell" :title="selected.display_path">{{ selected.display_path }}</p><strong>{{ formatBytes(selected.logical_bytes) }}</strong>
+      <h3>识别依据</h3><ul><li v-for="evidence in selected.evidence" :key="evidence">{{ evidence }}</li></ul><p>{{ selected.explanation }}</p>
+      <p><strong>建议：</strong>{{ actionLabel(selected.recommended_action) }} <span v-if="selected.execution_hint !== 'prepare_available'">当前策略不允许处理该项目。</span></p>
+      <p class="fine-print">候选识别规则：{{ selected.source_rule_id }} · {{ selected.rule_version }} · {{ selected.reason_code }}</p>
+      <div v-if="members.length"><h3>分组成员（{{ members.length }}）</h3><div class="member-list"><div v-for="member in members" :key="member.candidate_id"><span class="path-cell" :title="member.display_path">{{ member.display_path }}</span><strong class="size-cell">{{ formatBytes(member.logical_bytes) }}</strong></div></div></div>
+      <template v-if="diagnosticDetail">
+        <h3>{{ diagnosticDetail.candidate.decision.eligibility === 'eligible_for_recycle' ? '为什么可以进入准备处理？' : '为什么不能处理？' }}</h3>
+        <div class="diagnostic-decision"><strong>{{ eligibilityDecisionLabel(diagnosticDetail.candidate.decision.eligibility) }}</strong><span>{{ policyReasonTitle(diagnosticDetail.candidate.decision.primary_reason) }}</span></div>
+        <p>{{ policyReasonExplanation(diagnosticDetail.candidate.decision.primary_reason) }}</p>
+        <p class="fine-print">执行策略：{{ diagnosticDetail.candidate.decision.policy_rule_id }} · {{ diagnosticDetail.candidate.decision.execution_policy_version }}</p>
+        <h3>全部资格原因</h3>
+        <ul><li v-for="reason in diagnosticDetail.candidate.decision.reason_codes" :key="reason"><strong>{{ policyReasonTitle(reason) }}</strong>：{{ policyReasonExplanation(reason) }} <span class="mono">{{ reason }}</span></li></ul>
+        <h3>策略核对依据</h3>
+        <div class="detail-grid diagnostic-evidence">
+          <div><span>范围</span><strong>{{ diagnosticDetail.candidate.decision.evidence.path_scope }}</strong></div>
+          <div><span>对象类型</span><strong>{{ diagnosticDetail.candidate.decision.evidence.file_type }}</strong></div>
+          <div><span>文件年龄</span><strong>{{ formatAge(diagnosticDetail.candidate.age_days) }} / 要求至少 {{ diagnosticDetail.candidate.decision.evidence.required_age_days }} 天</strong></div>
+          <div><span>分类</span><strong>{{ categoryLabel(diagnosticDetail.candidate.category) }} / 要求临时文件</strong></div>
+          <div><span>风险</span><strong>{{ riskLabel(diagnosticDetail.candidate.risk_level) }} / 要求低风险</strong></div>
+          <div><span>置信度</span><strong>{{ confidenceLabel(diagnosticDetail.candidate.confidence) }} / 要求高</strong></div>
+          <div><span>扩展名</span><strong>{{ diagnosticDetail.candidate.decision.evidence.extension || '无' }} · {{ diagnosticDetail.candidate.decision.evidence.extension_blocked ? '已排除' : '未排除' }}</strong></div>
+          <div><span>快照修改时间</span><strong>{{ formatLocalTime(diagnosticDetail.candidate.snapshot_mtime) }}</strong></div>
+        </div>
+        <p v-if="diagnosticDetail.candidate.candidate_evidence.length" class="fine-print">候选识别依据：{{ diagnosticDetail.candidate.candidate_evidence.join('；') }}</p>
+        <p class="coverage-note">此诊断只使用保存的历史元数据，不是执行授权。即使符合条件，也必须在准备处理时重新核对当前文件。</p>
+      </template>
+      <p class="execution-status">{{ selected.execution_hint === 'prepare_available' ? '可准备处理 · 需重新核对当前文件' : executionStatus(selected) }}</p>
+      <div class="confirm-actions"><button v-if="selected.execution_hint === 'prepare_available'" type="button" class="primary-button" :disabled="prepareLoading" @click="prepareSelected">{{ prepareLoading ? '正在检查…' : '准备处理' }}</button><button type="button" class="text-button" @click="copyPath(selected.display_path)">复制路径</button><button type="button" class="primary-button" @click="selected = null">关闭</button></div>
+    </section>
+  </div>
   <div v-if="prepared" class="modal-backdrop" @click.self="prepared = null">
     <section class="confirm-dialog recommendation-detail" role="dialog" aria-modal="true" aria-labelledby="preflight-title">
       <p class="eyebrow">CURRENT FILE / PREFLIGHT</p><h2 id="preflight-title">当前状态预检</h2>

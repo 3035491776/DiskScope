@@ -537,6 +537,155 @@ export interface EligibilitySummary {
   items: Array<Pick<CleanupCandidate, 'candidate_id' | 'relative_path' | 'display_path' | 'logical_bytes' | 'category' | 'risk_level' | 'confidence'> & { snapshot_mtime: string | null }>
 }
 
+export interface PolicyDecision {
+  policy_rule_id: 'USER_TEMP_STALE_FILE_V1'
+  execution_policy_version: string
+  eligibility: 'ineligible' | 'eligible_for_review' | 'eligible_for_recycle' | 'eligible_for_delete'
+  allowed_actions: string[]
+  primary_reason: string
+  reason_codes: string[]
+  evidence: {
+    path_scope?: string
+    file_type?: string
+    logical_bytes?: number
+    minimum_bytes?: number
+    snapshot_mtime?: string | null
+    age_days?: number | null
+    required_age_days?: number
+    category?: string | null
+    required_category?: string
+    risk?: string | null
+    required_risk?: string
+    confidence?: string | null
+    required_confidence?: string
+    candidate_reason_code?: string | null
+    required_candidate_reason_code?: string
+    extension?: string
+    extension_blocked?: boolean
+  }
+  evaluated_at: string
+  evaluation_basis: 'snapshot_only' | 'snapshot_plus_current_metadata'
+  execution_authority: false
+}
+
+export interface EligibilityReasonDistribution {
+  reason_code: string
+  candidate_count: number
+  total_bytes: number
+}
+
+export interface EligibilityCoverage {
+  snapshot_coverage: 'complete' | 'limited'
+  file_persistence_mode: 'top_k' | 'bounded_scope'
+  file_persistence_limit: number
+  persisted_file_count: number
+  observed_file_count: number
+  file_metadata_coverage?: 'complete' | 'limited'
+}
+
+export interface EligibilityDiagnosticsSummary {
+  scope: string
+  snapshot_id: string
+  candidate_analysis_run_id: string
+  candidate_rule_version: string
+  policy_rule_id: 'USER_TEMP_STALE_FILE_V1'
+  execution_policy_version: string
+  evaluation_basis: 'snapshot_only' | 'snapshot_plus_current_metadata'
+  execution_authority: false
+  evaluated_at: string
+  duration_ms: number
+  evaluated_candidate_count: number
+  eligible_count: number
+  blocked_count: number
+  eligible_bytes: number
+  blocked_bytes: number
+  evaluation_error_count: number
+  primary_reason_distribution: EligibilityReasonDistribution[]
+  all_reason_distribution: EligibilityReasonDistribution[]
+  age_distribution: Array<{ bucket: string; candidate_count: number; total_bytes: number }>
+  coverage: EligibilityCoverage
+  semantics: {
+    primary_reason_counts_sum_to_evaluated: true
+    all_reason_counts_may_overlap: true
+    zero_eligible_means: string
+  }
+}
+
+export interface EligibilityDiagnosticCandidate {
+  candidate_id: string
+  file_name: string
+  relative_path: string
+  display_path: string
+  logical_bytes: number
+  snapshot_time: string
+  snapshot_mtime: string | null
+  age_days: number | null
+  object_type: 'file' | 'directory' | 'group'
+  category: string
+  risk_level: CleanupCandidate['risk_level']
+  confidence: CleanupCandidate['confidence']
+  candidate_reason_code: string
+  candidate_rule_id: string
+  candidate_rule_version: string
+  candidate_evidence: string[]
+  decision: PolicyDecision
+  limitations: string[]
+}
+
+export interface EligibilityDiagnosticsListing {
+  scope: string
+  snapshot_id: string
+  candidate_analysis_run_id: string
+  policy_rule_id: 'USER_TEMP_STALE_FILE_V1'
+  execution_policy_version: string
+  evaluation_basis: 'snapshot_only' | 'snapshot_plus_current_metadata'
+  execution_authority: false
+  evaluated_at: string
+  filter: string
+  sort: string
+  total: number
+  limit: number
+  offset: number
+  items: EligibilityDiagnosticCandidate[]
+}
+
+export interface EligibilityDiagnosticDetail {
+  scope: string
+  snapshot_id: string
+  candidate_analysis_run_id: string
+  coverage: EligibilityCoverage
+  candidate: EligibilityDiagnosticCandidate
+}
+
+export function getEligibilityDiagnosticsSummary(scopeKey = 'current_user_temp'): Promise<EligibilityDiagnosticsSummary> {
+  return apiJson(`/api/v1/cleanup/eligibility/summary?scope=${encodeURIComponent(scopeKey)}`)
+}
+
+export function getEligibilityDiagnosticCandidates(filters: {
+  scopeKey?: string
+  limit?: number
+  offset?: number
+  filter?: 'all' | 'eligible' | 'blocked' | 'high_risk' | 'recent' | 'extension_blocked'
+  sort?: 'size_desc' | 'age_desc'
+} = {}): Promise<EligibilityDiagnosticsListing> {
+  const query = new URLSearchParams({
+    scope: filters.scopeKey ?? 'current_user_temp',
+    limit: String(filters.limit ?? 50),
+    offset: String(filters.offset ?? 0),
+    filter: filters.filter ?? 'all',
+    sort: filters.sort ?? 'size_desc',
+  })
+  return apiJson(`/api/v1/cleanup/eligibility/candidates?${query}`)
+}
+
+export function getEligibilityDiagnosticDetail(
+  candidateId: string, scopeKey = 'current_user_temp',
+): Promise<EligibilityDiagnosticDetail> {
+  return apiJson(
+    `/api/v1/cleanup/eligibility/candidates/${encodeURIComponent(candidateId)}?scope=${encodeURIComponent(scopeKey)}`,
+  )
+}
+
 export function getCandidates(filters: { scopeKey?: string; category?: string; risk?: string; confidence?: string; limit?: number } = {}): Promise<CandidateListing> {
   const query = new URLSearchParams({ scope_key: filters.scopeKey ?? 'system_drive_c', limit: String(filters.limit ?? 100) })
   if (filters.category) query.set('category', filters.category)

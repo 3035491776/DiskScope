@@ -1,6 +1,6 @@
 # DiskScope
 
-DiskScope 是 Windows 磁盘空间诊断工具。当前状态为 **V0.1 / M6.3 当前用户 Temp 候选发现**。C: 与当前用户 Temp 扫描保持 metadata-only；已有 M6.2 执行门只允许逐个确认的严格合格文件进入 Windows 回收站。
+DiskScope 是 Windows 磁盘空间诊断工具。当前状态为 **V0.1 / M6.4 处理资格诊断**。C: 与当前用户 Temp 扫描保持 metadata-only；已有 M6.2 执行门只允许逐个确认的严格合格文件进入 Windows 回收站。
 
 ## 当前实现
 
@@ -18,6 +18,7 @@ DiskScope 是 Windows 磁盘空间诊断工具。当前状态为 **V0.1 / M6.3 �
 - M6.1 只允许 DiskScope 本次进程在 `%LOCALAPPDATA%\Temp\DiskScope\probes` 下创建并登记的 64 KiB 测试文件经过完整门禁后移入 Windows 回收站。SQLite 原位升级至 v4；现有用户文件和 M5 候选没有获得真实处理能力。详见 [docs/m6.1-controlled-recycle-execution.md](docs/m6.1-controlled-recycle-execution.md)。
 - M6.2 只允许已持久化候选中命中 `USER_TEMP_STALE_FILE_V1` 的单个普通文件：当前用户 `%LOCALAPPDATA%\Temp`、至少 30 天、高置信临时文件、低风险且达到 1 MiB。Prepare 和 Execute 都重新验证，只能移入 Windows 回收站，无永久删除回退。详见 [docs/m6.2-limited-user-temp-cleanup.md](docs/m6.2-limited-user-temp-cleanup.md)。
 - M6.3 增加固定 `current_user_temp` metadata-only 扫描，以 10,000 项硬上限保存最大与最旧文件的确定性混合元数据，并明确报告完整或受限覆盖。结果进入独立 Snapshot、M5 候选分析和 M6.2 只读资格评估；不自动 prepare、签发 token 或执行。详见 [docs/m6.3-user-temp-candidate-discovery.md](docs/m6.3-user-temp-candidate-discovery.md)。
+- M6.4 由 `ExecutionPolicyEngine` 返回结构化、确定性的 `PolicyDecision`，通过只读 API 和空间建议页解释候选为什么符合或不符合 guarded cleanup policy，并分别统计主要原因与全部原因及对应字节数。诊断基于历史快照元数据，不是执行授权，不会自动 prepare、签发 token 或执行。详见 [docs/m6.4-eligibility-diagnostics.md](docs/m6.4-eligibility-diagnostics.md)。
 - Low-Impact `standard` 策略：单枚举 worker、禁止跨卷和 reparse 跟随；开发区展示进程范围资源指标。设计与口径见 [docs/low-impact-scan.md](docs/low-impact-scan.md)。
 - `setup.bat`：检查本机 Python 和 Node.js，创建项目 `.venv`，安装依赖并构建前端。
 - `start.bat`：调用 `launcher/bootstrap.py` 启动后端，等待真实健康检查成功，再打开默认浏览器。

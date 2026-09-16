@@ -3,7 +3,9 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, ConfigDict, Field
 
+from app.cleanup.diagnostics import InvalidDiagnosticsRequest, eligibility_diagnostics
 from app.cleanup.service import CleanupError, cleanup_service
+from app.intelligence.store import CandidateNotFound, InvalidCandidateScope
 from app.security.session import require_local_origin, require_session
 from app.snapshots.store import SnapshotStoreError
 
@@ -34,7 +36,48 @@ class PrepareProbeRequest(BaseModel):
 def _error(exc: Exception) -> HTTPException:
     if isinstance(exc, CleanupError):
         return HTTPException(status_code=exc.status_code, detail=exc.code)
+    if isinstance(exc, InvalidDiagnosticsRequest):
+        return HTTPException(status_code=400, detail=str(exc))
+    if isinstance(exc, InvalidCandidateScope):
+        return HTTPException(status_code=400, detail=str(exc))
+    if isinstance(exc, CandidateNotFound):
+        return HTTPException(status_code=404, detail="CANDIDATE_OR_RUN_NOT_FOUND")
     return HTTPException(status_code=503, detail="SNAPSHOT_DATABASE_UNAVAILABLE")
+
+
+@router.get("/eligibility/summary")
+def eligibility_summary(scope: str = "current_user_temp") -> dict[str, object]:
+    try:
+        return eligibility_diagnostics.summary(scope)
+    except (InvalidDiagnosticsRequest, InvalidCandidateScope, CandidateNotFound,
+            SnapshotStoreError) as exc:
+        raise _error(exc) from exc
+
+
+@router.get("/eligibility/candidates")
+def eligibility_candidates(
+    scope: str = "current_user_temp",
+    limit: int = Query(50, ge=1, le=200),
+    offset: int = Query(0, ge=0, le=10000),
+    filter: str = "all",
+    sort: str = "size_desc",
+) -> dict[str, object]:
+    try:
+        return eligibility_diagnostics.list(scope, limit, offset, filter, sort)
+    except (InvalidDiagnosticsRequest, InvalidCandidateScope, CandidateNotFound,
+            SnapshotStoreError) as exc:
+        raise _error(exc) from exc
+
+
+@router.get("/eligibility/candidates/{candidate_id}")
+def eligibility_candidate_detail(
+    candidate_id: str, scope: str = "current_user_temp",
+) -> dict[str, object]:
+    try:
+        return eligibility_diagnostics.detail(candidate_id, scope)
+    except (InvalidDiagnosticsRequest, InvalidCandidateScope, CandidateNotFound,
+            SnapshotStoreError) as exc:
+        raise _error(exc) from exc
 
 
 @router.post("/prepare", dependencies=[Depends(require_local_origin)])

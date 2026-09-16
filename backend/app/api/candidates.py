@@ -15,7 +15,9 @@ router = APIRouter(prefix="/api/v1", tags=["candidates"], dependencies=[Depends(
 
 def _add_execution_policy(item: dict[str, object], scope_key: str) -> None:
     policy = ExecutionPolicyEngine()
-    reasons = policy.discovery_reasons(item, scope_key, item.get("snapshot_mtime"))
+    decision = policy.evaluate(item, scope_key, item.get("snapshot_mtime"))
+    reasons = ([] if decision.eligibility == "eligible_for_recycle"
+               else list(decision.reason_codes))
     if item.get("execution_state") == "recycled":
         reasons.append("ALREADY_EXECUTED")
     reasons = list(dict.fromkeys(reasons))
@@ -24,10 +26,8 @@ def _add_execution_policy(item: dict[str, object], scope_key: str) -> None:
         else "suggestion_only" if reasons else "prepare_available"
     )
     item["execution_policy"] = {
-        "eligibility": "ineligible" if reasons else "eligible_for_recycle",
-        "allowed_actions": [] if reasons else ["recycle"],
+        **decision.to_dict(),
         "block_reasons": reasons,
-        "policy_rule_id": "USER_TEMP_STALE_FILE_V1",
         "required_checks": ["candidate_id", "path_scope", "current_user_temp", "parent_reparse",
                             "target_reparse", "regular_file", "volume", "size", "mtime",
                             "age_30_days", "extension", "category", "confidence", "risk"],
@@ -39,7 +39,7 @@ def _eligibility_summary(scope_key: str) -> dict[str, object]:
     policy = ExecutionPolicyEngine()
     eligible = []
     for item in candidate_store.execution_candidates(scope_key):
-        if not policy.discovery_reasons(item, scope_key, item.get("snapshot_mtime")):
+        if policy.evaluate(item, scope_key, item.get("snapshot_mtime")).eligibility == "eligible_for_recycle":
             eligible.append(item)
     return {
         "eligible_count": len(eligible),

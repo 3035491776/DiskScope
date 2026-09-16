@@ -258,5 +258,52 @@ class CandidateStore:
                 WHERE c.run_id = ? AND c.group_id IS NULL AND c.object_type = 'file'
                 ORDER BY c.logical_bytes DESC, c.relative_path""", (run["id"],))]
 
+    def diagnostics_dataset(self, scope_key: str) -> dict[str, object]:
+        """Batch the latest run and visible candidates for read-only policy diagnostics."""
+        validate_scope(scope_key)
+        with self.snapshots._connection() as connection:
+            row = connection.execute("""SELECT r.id FROM candidate_runs r
+                JOIN scan_snapshots s ON s.id = r.snapshot_id
+                WHERE s.scope_key = ? AND r.status = 'completed'
+                ORDER BY s.completed_at DESC, r.created_at DESC, r.id DESC LIMIT 1""",
+                (scope_key,)).fetchone()
+            if row is None:
+                raise CandidateNotFound("CANDIDATE_RUN_NOT_FOUND")
+            run_id = str(row["id"])
+            run = self._run(connection, run_id)
+            snapshot = connection.execute(
+                f"SELECT {SUMMARY_COLUMNS} FROM scan_snapshots WHERE id = ?",
+                (run["snapshot_id"],),
+            ).fetchone()
+            candidates = [dict(item) for item in connection.execute("""SELECT c.*,
+                f.mtime AS snapshot_mtime FROM cleanup_candidates c
+                JOIN candidate_runs r ON r.id = c.run_id
+                LEFT JOIN file_snapshots f ON f.snapshot_id = r.snapshot_id
+                    AND f.relative_path = c.relative_path
+                WHERE c.run_id = ? AND c.group_id IS NULL
+                ORDER BY c.logical_bytes DESC, c.relative_path""", (run_id,))]
+            return {"run": run, "snapshot": dict(snapshot), "candidates": candidates}
+
+    def diagnostics_candidate(self, candidate_id: str, scope_key: str) -> dict[str, object]:
+        """Load one scope-bound candidate and its run context without target access."""
+        validate_scope(scope_key)
+        with self.snapshots._connection() as connection:
+            row = connection.execute("""SELECT c.*, f.mtime AS snapshot_mtime,
+                r.id AS candidate_analysis_run_id, r.snapshot_id,
+                r.rule_version AS candidate_rule_version,
+                s.scope_key, s.scope_label, s.completed_at AS scan_completed_at,
+                s.coverage AS snapshot_coverage, s.file_persistence_mode,
+                s.file_persistence_limit, s.persisted_file_count, s.observed_file_count
+                FROM cleanup_candidates c
+                JOIN candidate_runs r ON r.id = c.run_id
+                JOIN scan_snapshots s ON s.id = r.snapshot_id
+                LEFT JOIN file_snapshots f ON f.snapshot_id = r.snapshot_id
+                    AND f.relative_path = c.relative_path
+                WHERE c.candidate_id = ? AND s.scope_key = ? AND c.group_id IS NULL""",
+                (candidate_id, scope_key)).fetchone()
+            if row is None:
+                raise CandidateNotFound(candidate_id)
+            return dict(row)
+
 
 candidate_store = CandidateStore()

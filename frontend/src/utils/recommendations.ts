@@ -85,3 +85,61 @@ export function executionReasonLabel(code: string): string {
     RECYCLE_ORIGINAL_PATH_REMAINS: '原始路径仍然存在，回收站操作未被判定为成功。',
   }[code] ?? code
 }
+
+export function policyReasonTitle(code: string): string {
+  return {
+    ELIGIBLE_USER_TEMP_STALE_FILE: '满足当前处理条件',
+    EXECUTION_PROTECTED_PATH: '系统保护路径',
+    EXECUTION_SCOPE_BLOCKED: '不在诊断范围内',
+    EXECUTION_CURRENT_USER_TEMP_ONLY: '不在当前用户临时目录内',
+    EXECUTION_PATH_BLOCKED: '路径边界未通过',
+    DIRECTORY_EXECUTION_NOT_SUPPORTED: '当前版本不处理目录',
+    EXECUTION_REPARSE_POINT_BLOCKED: '链接或系统重定向被阻止',
+    EXECUTION_PARENT_CHANGED: '父级路径状态不符合要求',
+    EXECUTION_CROSS_VOLUME_BLOCKED: '路径跨越磁盘卷',
+    UNKNOWN_CATEGORY: '文件分类未知',
+    EXECUTION_CATEGORY_BLOCKED: '文件分类不符合要求',
+    UNKNOWN_RISK: '风险等级未知',
+    EXECUTION_RISK_BLOCKED: '风险等级不符合要求',
+    UNKNOWN_CONFIDENCE: '识别置信度未知',
+    EXECUTION_CONFIDENCE_BLOCKED: '识别置信度不足',
+    EXECUTION_POLICY_BLOCKED: '候选规则不匹配',
+    EXECUTION_EXTENSION_BLOCKED: '文件类型被安全策略排除',
+    EXECUTION_SIZE_BELOW_THRESHOLD: '文件小于当前处理下限',
+    UNKNOWN_MTIME: '修改时间未知',
+    EXECUTION_TIMESTAMP_INVALID: '修改时间无法可靠判断',
+    EXECUTION_FILE_TOO_RECENT: '文件不足 30 天',
+    TARGET_CHANGED_SINCE_SCAN: '文件在扫描后发生变化',
+    TARGET_NO_LONGER_EXISTS: '文件已不存在',
+    TARGET_METADATA_ERROR: '无法读取当前元数据',
+    POLICY_EVALUATION_ERROR: '策略评估失败',
+  }[code] ?? code
+}
+
+export function policyReasonExplanation(code: string): string {
+  return {
+    ELIGIBLE_USER_TEMP_STALE_FILE: '保存的元数据显示：这是当前用户 Temp 根目录中的普通临时文件，至少 30 天未修改，识别置信度高、风险低，且文件类型未被排除。进入处理前仍需重新核对文件当前状态。',
+    EXECUTION_RISK_BLOCKED: '此文件位于临时目录的子目录中。当前版本将这类文件视为较高风险，因为它可能属于程序运行状态、更新程序或缓存，因此不会提供处理操作。',
+    EXECUTION_FILE_TOO_RECENT: '文件距离上次修改不足 30 天，当前策略不会处理较新的临时文件。',
+    EXECUTION_EXTENSION_BLOCKED: '该文件类型在当前安全策略中被明确排除。转储、程序、脚本和系统文件不会进入处理预检。',
+    EXECUTION_POLICY_BLOCKED: '候选的识别依据没有命中当前执行策略要求的临时文件规则。',
+    EXECUTION_CATEGORY_BLOCKED: '该候选没有被识别为当前策略支持的普通临时文件。',
+    EXECUTION_CONFIDENCE_BLOCKED: '识别结果没有达到当前策略要求的高置信度。',
+    EXECUTION_SIZE_BELOW_THRESHOLD: '文件小于当前首批处理策略的 1 MiB 下限。',
+    DIRECTORY_EXECUTION_NOT_SUPPORTED: '当前版本只评估单个普通文件，不支持目录、目录树或分组处理。',
+    EXECUTION_PROTECTED_PATH: 'Windows 或系统保护路径始终禁止由此执行策略处理。',
+    EXECUTION_CURRENT_USER_TEMP_ONLY: '当前执行策略只覆盖当前登录用户的 LocalAppData\\Temp。',
+    EXECUTION_SCOPE_BLOCKED: '该候选不属于当前执行策略允许的固定范围。',
+    EXECUTION_PATH_BLOCKED: '保存的路径无法通过严格的规范化和目录边界检查。',
+    UNKNOWN_CATEGORY: '保存的候选缺少可靠分类。未知值按不符合处理条件处理。',
+    UNKNOWN_RISK: '保存的候选缺少可靠风险等级。未知值按不符合处理条件处理。',
+    UNKNOWN_CONFIDENCE: '保存的候选缺少可靠置信度。未知值按不符合处理条件处理。',
+    UNKNOWN_MTIME: '保存的候选缺少修改时间，无法确认是否达到 30 天。',
+    EXECUTION_TIMESTAMP_INVALID: '保存的修改时间异常或位于未来，无法可靠判断文件年龄。',
+    POLICY_EVALUATION_ERROR: '本次策略评估没有得到可靠结果，因此按不符合处理条件处理。',
+  }[code] ?? executionReasonLabel(code)
+}
+
+export function eligibilityDecisionLabel(value: string): string {
+  return value === 'eligible_for_recycle' ? '可进入准备处理' : '当前策略不允许处理'
+}
