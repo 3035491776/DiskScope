@@ -1,14 +1,17 @@
 import os
+import io
 import subprocess
 import sys
 import tempfile
 import unittest
+from contextlib import redirect_stdout
 from pathlib import Path
 from unittest.mock import patch
 
 from app.api.health import health
 from app.scanner.path_guard import InvalidScanRoot
 from app.scanner import scope_registry
+from launcher import bootstrap
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -59,6 +62,49 @@ class PackagingContractTests(unittest.TestCase):
         source = (PROJECT_ROOT / "backend" / "app" / "scanner" / "path_guard.py").read_text()
         self.assertNotIn("D:\\Artilius", source)
         self.assertNotIn("Windows-C-clear", source)
+
+    def test_browser_open_failure_prints_one_time_local_fallback(self) -> None:
+        class FakeProcess:
+            def __init__(self) -> None:
+                self.stdin = io.StringIO()
+                self.finished = False
+
+            def wait(self, timeout=None):
+                self.finished = True
+                return 0
+
+            def poll(self):
+                return 0 if self.finished else None
+
+            def terminate(self) -> None:
+                self.finished = True
+
+            def kill(self) -> None:
+                self.finished = True
+
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            dist = root / "frontend"
+            dist.mkdir()
+            (dist / "index.html").write_text("<div id=\"app\"></div>", encoding="utf-8")
+            output = io.StringIO()
+            process = FakeProcess()
+            with (
+                patch.object(bootstrap, "ROOT", root),
+                patch.object(bootstrap, "LOGS", root / "logs"),
+                patch.object(bootstrap, "DIST", dist),
+                patch.object(bootstrap, "check_port_available"),
+                patch.object(bootstrap, "backend_command", return_value=["DiskScope.exe", "--serve"]),
+                patch.object(bootstrap, "wait_for_health"),
+                patch.object(bootstrap.logging, "basicConfig"),
+                patch.object(bootstrap.subprocess, "Popen", return_value=process),
+                patch.object(bootstrap.webbrowser, "open", return_value=False),
+                redirect_stdout(output),
+            ):
+                exit_code = bootstrap.main()
+
+        self.assertEqual(exit_code, 0)
+        self.assertIn("Open this one-time local address in your browser:", output.getvalue())
 
 
 if __name__ == "__main__":

@@ -21,6 +21,6 @@ const links = [
         <span class="nav-icon" aria-hidden="true">{{ link.icon }}</span><span>{{ link.label }}</span>
       </RouterLink>
     </nav>
-    <div class="sidebar-foot"><span class="foot-dot"></span> V0.1 · 只读诊断模式</div>
+    <div class="sidebar-foot"><span class="foot-dot"></span> v0.1.0 · 只读诊断模式</div>
   </aside>
 </template>

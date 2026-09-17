@@ -36,3 +36,9 @@ test('frontend bundle contains no development-machine absolute path', () => {
   assert.doesNotMatch(largeItems, /Artilius|Windows-C-clear/)
   assert.match(api, /scope_key: target === 'project' \? 'project_workspace' : 'fixture_sample'/)
 })
+
+test('release UI displays the complete frozen version', () => {
+  const sidebar = read('../src/components/AppSidebar.vue')
+  assert.match(sidebar, /v0\.1\.0 · 只读诊断模式/)
+  assert.doesNotMatch(sidebar, />\s*V0\.1 ·/)
+})
