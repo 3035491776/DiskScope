@@ -2,13 +2,13 @@ import os
 import stat
 from pathlib import Path, PureWindowsPath
 
-from app.core.config import PROJECT_ROOT
+from app.core.config import PACKAGED_RELEASE, PROJECT_ROOT
 from app.scanner.whole_volume_gate import reject_whole_volume_root
 
 
 FIXTURE_ROOT = PROJECT_ROOT / "tests" / "fixtures"
 # Temporary M1.5 developer allowlist. Only this exact root may be requested via API.
-ALLOWED_REAL_ROOTS = (Path(r"D:\Artilius\Codex\Windows-C-clear"),)
+ALLOWED_REAL_ROOTS = () if PACKAGED_RELEASE else (PROJECT_ROOT,)
 PROJECT_ROOT_LABEL = "project_workspace"
 
 

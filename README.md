@@ -1,6 +1,6 @@
 # DiskScope
 
-DiskScope 是安全、低影响、可解释的 Windows 磁盘空间诊断工具。当前状态为 **V0.1 / M8 扫描性能与资源效率**。C: 与当前用户 Temp 扫描保持 metadata-only；受保护执行门仍只允许逐个确认的严格合格文件进入 Windows 回收站。
+DiskScope 是安全、低影响、可解释的 Windows 磁盘空间诊断工具。当前状态为 **V0.1 / M9 Packaging & Release Readiness**。C: 与当前用户 Temp 扫描保持 metadata-only；受保护执行门仍只允许逐个确认的严格合格文件进入 Windows 回收站。
 
 ## 当前实现
 
@@ -21,6 +21,7 @@ DiskScope 是安全、低影响、可解释的 Windows 磁盘空间诊断工具�
 - M6.4 由 `ExecutionPolicyEngine` 返回结构化、确定性的 `PolicyDecision`，通过只读 API 和空间建议页解释候选为什么符合或不符合 guarded cleanup policy，并分别统计主要原因与全部原因及对应字节数。诊断基于历史快照元数据，不是执行授权，不会自动 prepare、签发 token 或执行。详见 [docs/m6.4-eligibility-diagnostics.md](docs/m6.4-eligibility-diagnostics.md)。
 - M7 分离当前结果、下一次扫描范围和 History 比较范围，收拢 Recommendations 信息层级，完善覆盖语义、Dialog 键盘可访问性和启动 fragment 清理；不改变 M6 策略与执行边界。详见 [docs/m7-product-stabilization.md](docs/m7-product-stabilization.md)。
 - M8 基于 cProfile 与可重复 fixture 消除重复 root/path 校验、无效 Top-K 对象构建和高频进度回调，并用 slotted metadata 模型降低目录聚合内存；保持单 worker、逐 entry 取消、reparse/跨卷保护与 schema v6。详见 [docs/m8-scan-performance.md](docs/m8-scan-performance.md)。
+- M9 提供 Windows x64 one-folder portable release：预构建前端、内置 Python runtime，以 `DiskScope.exe` 启动本机服务和默认浏览器；开发数据、日志、Fixture 和源码不会进入发行包。构建与验收见 [docs/m9-packaging-release.md](docs/m9-packaging-release.md)。
 - Low-Impact `standard` 策略：单枚举 worker、禁止跨卷和 reparse 跟随；扫描状态展示必要的进程资源概览，内部标识留在技术详情。设计与口径见 [docs/low-impact-scan.md](docs/low-impact-scan.md)。
 - `setup.bat`：检查本机 Python 和 Node.js，创建项目 `.venv`，安装依赖并构建前端。
 - `start.bat`：调用 `launcher/bootstrap.py` 启动后端，等待真实健康检查成功，再打开默认浏览器。
@@ -29,13 +30,19 @@ DiskScope 是安全、低影响、可解释的 Windows 磁盘空间诊断工具�
 
 本阶段可显式分析固定 C:\ 和当前用户 Temp 范围，也保留 fixture 与项目工作区；D:\ 整卷、任意路径和网络路径仍拒绝。总览、空间分析、大文件与目录和空间建议可在重启后使用各自 scope 的最新已完成快照。真实处理边界没有扩大；批量、目录、应用缓存、系统转储和永久删除均未开放。扫描器与执行策略都不打开文件正文，安全边界由后端执行。
 
-## 首次准备与日常启动
+## Portable Release
+
+普通 Windows 10/11 x64 用户下载并解压 `DiskScope-v0.1.0-windows-x64.zip` 后，双击 `DiskScope.exe` 即可；无需 Python、Node.js、pip、npm、PowerShell 或管理员权限。发行版把数据库和日志分别写到自身的 `data\` 与 `logs\`，因此应解压到当前用户可写目录，升级时保留 `data\`。完整说明见发行包内 `QUICKSTART.md`。
+
+V0.1 为未签名构建，可能出现 SmartScreen 或安全软件声誉提示。不要关闭或绕过系统安全功能；请从可信发布来源获取文件并核对 SHA-256。
+
+## 源码首次准备与日常启动
 
 在 Windows 10/11 x64 上安装 64 位 Python 3.11–3.14 和 Node.js，然后在项目根目录运行 `setup.bat`。脚本只在本项目的 `.venv` 中安装 Python 依赖，在 `frontend/node_modules` 中安装 npm 依赖，并生成 `frontend/dist`。首次准备可能需要网络，不修改系统 PATH、注册表或全局包环境。
 
 准备完成后运行 `tests/fixtures/generate_sample.py` 生成受控样本，再双击 `start.bat`。启动器只在 `127.0.0.1:8765` 监听；端口被占用时会明确报错。后端通过 `/health` 验证后才打开本地页面，并通过一次性 URL fragment 建立 HttpOnly 本机会话。关闭启动窗口或按 Ctrl+C 可结束服务。运行日志保存在 `logs/`。
 
-当前源码首次准备需要 Node.js 来构建页面；日常运行使用已构建的页面，无需启动 Node.js。后续发布流程会进一步处理无 Node 的首次安装体验。
+源码首次准备需要 Node.js 来构建页面；日常源码运行使用已构建的页面，无需启动 Node.js。Portable Release 已内置前端与 Python runtime，不使用源码开发依赖。
 
 ## 开发启动
 
@@ -69,6 +76,7 @@ $env:PYTHONPATH='backend'
 .venv\Scripts\python.exe -m unittest discover -s tests -v
 npm.cmd --prefix frontend run build
 npm.cmd --prefix frontend test
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\build_release.ps1
 ```
 
 扫描 API 位于 `/api/v1/scans`，提供创建、状态、取消、Top 文件/大目录和当前层级目录结果；容量接口位于 `/api/v1/volumes`，历史与比较接口位于 `/api/v1/snapshots` 和 `/api/v1/compare`；快照候选分析与查询位于 `/api/v1/snapshots/{id}/analyze` 和 `/api/v1/candidates`。除 `/health` 外，这些 API 需要本机会话；修改请求还校验 Origin。C: 只能由固定 `system_drive_c` scope 与显式确认进入专用只读策略；Temp 只能使用 `current_user_temp`，路径由后端从当前会话环境解析。任意 root、其他整卷、UNC、设备路径及重解析点仍被拒绝。

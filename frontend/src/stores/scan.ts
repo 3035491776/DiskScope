@@ -1,5 +1,5 @@
 import { defineStore } from 'pinia'
-import { ref } from 'vue'
+import { computed, ref } from 'vue'
 import {
   cancelScan, createScan, establishSession, getCurrentScan, getHealth, getLatestResult, getScan, getVolumes,
 } from '../services/api'
@@ -25,6 +25,7 @@ export const useScanStore = defineStore('scan', () => {
   const volumesState = ref<'loading' | 'ready' | 'unavailable'>('loading')
   const message = ref('')
   const starting = ref(false)
+  const developerMode = computed(() => health.value?.developer_mode === true)
   let timer: ReturnType<typeof setInterval> | null = null
   let refreshing = false
   let resultRequest = 0
@@ -45,7 +46,9 @@ export const useScanStore = defineStore('scan', () => {
   }
 
   async function restoreResult() {
-    const targets: ScanTarget[] = scan.value ? [resultTarget.value] : ['c_drive', 'user_temp', 'project', 'fixture']
+    const targets: ScanTarget[] = scan.value
+      ? [resultTarget.value]
+      : developerMode.value ? ['c_drive', 'user_temp', 'project', 'fixture'] : ['c_drive', 'user_temp']
     for (const target of targets) {
       await loadResult(target)
       if (!result.value || result.value.source_type !== 'none' || result.value.storage_status === 'unavailable') break
@@ -96,10 +99,10 @@ export const useScanStore = defineStore('scan', () => {
         await restoreCurrentScan()
         await restoreResult()
       }
-      else message.value = '请从 start.bat 打开本地页面，以启用扫描。'
+      else message.value = '请通过 DiskScope 启动入口重新打开本地页面，以启用扫描。'
     } catch {
       sessionReady.value = false
-      message.value = '本地会话不可用，请从 start.bat 重新打开页面。'
+      message.value = '本地会话不可用，请通过 DiskScope 启动入口重新打开页面。'
     }
   }
 
@@ -181,7 +184,8 @@ export const useScanStore = defineStore('scan', () => {
 
   return {
     serviceState, health, sessionReady, selectedTarget, resultTarget, historyTarget, scan,
-    recentCompleted, result, resultLoading, volumes, volumesState, message, starting, checkService,
+    recentCompleted, result, resultLoading, volumes, volumesState, message, starting, developerMode,
+    checkService,
     initialize, reconnect, loadVolumes, loadResult, startScan, requestCancel, refreshScan,
   }
 })

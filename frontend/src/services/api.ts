@@ -3,6 +3,7 @@ export interface HealthResponse {
   app: 'DiskScope'
   version: string
   mode: 'guarded_cleanup'
+  developer_mode: boolean
   capabilities: {
     scan: 'read_only'
     cleanup: 'guarded_recycle'
@@ -28,6 +29,7 @@ export async function getHealth(): Promise<HealthResponse> {
     !('app' in payload) || payload.app !== 'DiskScope' ||
     !('version' in payload) || typeof payload.version !== 'string' ||
     !('mode' in payload) || payload.mode !== 'guarded_cleanup' ||
+    !('developer_mode' in payload) || typeof payload.developer_mode !== 'boolean' ||
     !('capabilities' in payload) || typeof payload.capabilities !== 'object' || payload.capabilities === null ||
     !('scan' in payload.capabilities) || payload.capabilities.scan !== 'read_only' ||
     !('cleanup' in payload.capabilities) || payload.capabilities.cleanup !== 'guarded_recycle' ||
@@ -230,15 +232,13 @@ export async function establishSession(): Promise<boolean> {
 }
 
 export type ScanTarget = 'fixture' | 'project' | 'c_drive' | 'user_temp'
-export const PROJECT_WORKSPACE_PATH = 'D:\\Artilius\\Codex\\Windows-C-clear'
-
 export function createScan(target: ScanTarget = 'fixture'): Promise<{ scan_id: string; state: string }> {
   return apiJson('/api/v1/scans', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(target === 'c_drive' || target === 'user_temp'
       ? { scope_key: target === 'c_drive' ? 'system_drive_c' : 'current_user_temp', confirmed_readonly: target === 'c_drive' }
-      : { root: target === 'project' ? PROJECT_WORKSPACE_PATH : 'tests/fixtures/sample_disk' }),
+      : { scope_key: target === 'project' ? 'project_workspace' : 'fixture_sample' }),
   })
 }
 

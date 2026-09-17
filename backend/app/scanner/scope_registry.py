@@ -3,7 +3,7 @@
 from dataclasses import dataclass
 from pathlib import Path
 
-from app.core.config import PROJECT_ROOT
+from app.core.config import PACKAGED_RELEASE, PROJECT_ROOT
 from app.scanner.c_drive import C_ROOT, SYSTEM_DRIVE_LABEL, SYSTEM_DRIVE_SCOPE_KEY, validate_system_drive_c
 from app.scanner.path_guard import InvalidScanRoot, validate_scan_root
 from app.scanner.policy import C_DRIVE_SAFE_READONLY, SCAN_POLICY, ScanPolicy
@@ -53,6 +53,10 @@ def resolve_scan_scope(
     scope_key: str | None = None,
     confirmed_readonly: bool = False,
 ) -> ScanScope:
+    if PACKAGED_RELEASE and (
+        requested_root is not None or scope_key in {"fixture_sample", "project_workspace"}
+    ):
+        raise InvalidScanRoot("Development scan scopes are unavailable in packaged releases.")
     if scope_key is not None:
         if requested_root is not None:
             raise InvalidScanRoot("Use a fixed scope_key without a root path.")

@@ -9,14 +9,14 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Iterator
 
-from app.core.config import PROJECT_ROOT
+from app.core.config import DATA_DIR, PROJECT_ROOT
 from app.scanner.models import ScanResult
 from app.snapshots.compare import compare_directories, compare_top_files, delta_ratio
 
 
 SCHEMA_VERSION = 6
 RETENTION_PER_SCOPE = 20
-DEFAULT_DATABASE = PROJECT_ROOT / "data" / "diskscope.db"
+DEFAULT_DATABASE = DATA_DIR / "diskscope.db"
 SUMMARY_COLUMNS = ("id AS snapshot_id, scan_id, scope_key, scope_label, status, "
                    "started_at, completed_at, duration_seconds, total_bytes, file_count, "
                    "directory_count, error_count, skipped_count, coverage, "

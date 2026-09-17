@@ -1,6 +1,6 @@
 from fastapi import APIRouter
 
-from app.core.config import APP_MODE, APP_NAME, APP_VERSION
+from app.core.config import APP_MODE, APP_NAME, APP_VERSION, DEVELOPER_MODE
 
 
 router = APIRouter()
@@ -13,6 +13,7 @@ def health() -> dict[str, object]:
         "app": APP_NAME,
         "version": APP_VERSION,
         "mode": APP_MODE,
+        "developer_mode": DEVELOPER_MODE,
         "capabilities": {
             "scan": "read_only",
             "cleanup": "guarded_recycle",

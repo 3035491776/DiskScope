@@ -2,7 +2,7 @@
 import { computed, ref, watch } from 'vue'
 import EmptyState from '../components/EmptyState.vue'
 import ResultSourceBanner from '../components/ResultSourceBanner.vue'
-import { PROJECT_WORKSPACE_PATH, getResultTop } from '../services/api'
+import { getResultTop } from '../services/api'
 import type { DirectoryItem, FileItem } from '../services/api'
 import { useScanStore } from '../stores/scan'
 import { formatBytes, formatLocalTime, formatNumber } from '../utils/format'
@@ -41,9 +41,7 @@ watch([() => store.result?.result_id, () => store.result?.source_type, () => sto
 function absolutePath(relativePath: string): string {
   if (store.resultTarget === 'c_drive') return `C:\\${relativePath.replaceAll('/', '\\')}`
   if (store.resultTarget === 'user_temp') return `%LOCALAPPDATA%\\Temp\\${relativePath.replaceAll('/', '\\')}`
-  const root = store.resultTarget === 'project'
-    ? PROJECT_WORKSPACE_PATH
-    : `${PROJECT_WORKSPACE_PATH}\\tests\\fixtures\\sample_disk`
+  const root = store.resultTarget === 'project' ? 'Project Workspace' : 'Fixture Sample'
   return `${root}\\${relativePath.replaceAll('/', '\\')}`
 }
 

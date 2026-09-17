@@ -21,7 +21,7 @@ test('primary scan entry contains C and Temp while dev targets are collapsed', (
   const controls = read('../src/components/ScanControls.vue')
   assert.match(controls, /<option value="user_temp">当前用户临时文件<\/option>/)
   assert.match(controls, /<option value="c_drive">Windows C:<\/option>/)
-  assert.match(controls, /<details class="developer-scan-tools">/)
+  assert.match(controls, /<details v-if="store\.developerMode" class="developer-scan-tools">/)
   assert.match(controls, /Fixture Sample/)
   assert.match(controls, /Project Workspace/)
   assert.doesNotMatch(controls, /几十秒至数分钟/)

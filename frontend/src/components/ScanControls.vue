@@ -62,7 +62,7 @@ defineExpose({ openCDriveDialog })
     <span class="control-hint">{{ store.selectedTarget === 'c_drive' ? '完整系统盘扫描可能需要较长时间，开始前会再次确认' : store.selectedTarget === 'user_temp' ? '只读取当前用户 Temp 的文件元数据；扫描不会删除文件' : '已选择开发与测试范围' }}</span>
   </div>
 
-  <details class="developer-scan-tools">
+  <details v-if="store.developerMode" class="developer-scan-tools">
     <summary>开发与测试范围</summary>
     <div class="scan-controls">
       <label for="developer-scan-target">测试范围</label>

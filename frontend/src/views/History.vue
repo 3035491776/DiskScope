@@ -86,7 +86,7 @@ const hasFileChanges = computed(() => fileGroups.value.some(group => group.items
 <template>
   <div class="page-heading"><div><p class="eyebrow">HISTORY / CHANGE</p><h1>历史与变化</h1><p class="page-description">比较同一固定范围的两次扫描，查看空间增长与 Top 大文件变化。</p></div><span class="read-only-chip">只读历史</span></div>
   <section class="panel"><div class="panel-heading"><div><p class="eyebrow">SCAN SCOPE</p><h2>历史范围 · {{ targetName(historyTarget) }}</h2></div><button type="button" class="text-button" @click="loadHistory">刷新历史</button></div>
-    <div class="scan-controls"><label for="history-scope">查看范围</label><select id="history-scope" v-model="historyTarget"><option value="c_drive">Windows C:</option><option value="user_temp">当前用户临时文件</option><optgroup label="开发与测试范围"><option value="fixture">Fixture Sample</option><option value="project">Project Workspace</option></optgroup></select></div>
+    <div class="scan-controls"><label for="history-scope">查看范围</label><select id="history-scope" v-model="historyTarget"><option value="c_drive">Windows C:</option><option value="user_temp">当前用户临时文件</option><optgroup v-if="store.developerMode" label="开发与测试范围"><option value="fixture">Fixture Sample</option><option value="project">Project Workspace</option></optgroup></select></div>
     <p class="inline-note">只显示该范围的历史；无法跨范围组合比较。</p>
   </section>
   <p v-if="error" class="panel inline-error history-message" role="alert">{{ error }}</p>

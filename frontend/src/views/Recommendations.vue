@@ -292,7 +292,7 @@ watch(scopeKey, () => {
   <p class="coverage-note">{{ scopeKey === 'current_user_temp' ? '历史快照不是处理授权。只有当前用户 LocalAppData\\Temp 中至少 30 天未修改、达到 1 MiB 的高置信低风险临时普通文件，才能逐个重新验证并由您确认移入回收站。' : 'C: 范围只用于空间建议与风险解释，不提供处理操作；当前受保护处理能力仅覆盖严格合格的当前用户 Temp 单文件。' }}</p>
   <section class="panel"><div class="panel-heading"><div><p class="eyebrow">SOURCE</p><h2>{{ scopeKey === 'current_user_temp' ? '当前用户临时文件' : 'Windows C:' }} · 基于已保存扫描结果</h2></div><button type="button" class="text-button" :disabled="loading || !latestSnapshot" @click="loadRecommendations(true)">重新分析已保存快照</button></div>
     <div class="scan-controls"><label>分析范围<select v-model="scopeKey"><option value="current_user_temp">当前用户临时文件</option><option value="system_drive_c">Windows C:</option></select></label></div>
-    <p v-if="!store.sessionReady" class="inline-note">请从 start.bat 打开本地页面，以查看已保存的扫描结果。</p>
+    <p v-if="!store.sessionReady" class="inline-note">请通过 DiskScope 启动入口重新打开本地页面，以查看已保存的扫描结果。</p>
     <template v-else><div class="recommendation-meta"><span>扫描时间：{{ formatLocalTime(latestSnapshot?.completed_at) }}</span><span v-if="run">建议分析耗时：{{ formatSeconds(run.duration_ms) }}</span></div>
       <p v-if="coverageMessage(latestSnapshot?.coverage)" class="coverage-note">{{ coverageMessage(latestSnapshot?.coverage) }}</p>
       <p class="inline-note">{{ scopeKey === 'current_user_temp' ? `文件元数据 ${latestSnapshot?.persisted_file_count ?? 0} / ${latestSnapshot?.observed_file_count ?? 0}；${(latestSnapshot?.persisted_file_count ?? 0) === (latestSnapshot?.observed_file_count ?? 0) ? '覆盖完整。' : '已达到有界持久化上限，结果覆盖受限。'}` : topKMessage }}</p>

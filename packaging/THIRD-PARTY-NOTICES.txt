@@ -1,0 +1,17 @@
+DiskScope v0.1.0 runtime dependency summary
+
+DiskScope: MIT
+FastAPI: MIT
+Starlette: BSD-3-Clause
+Uvicorn: BSD-3-Clause
+Pydantic: MIT
+pydantic-core: MIT
+AnyIO: MIT
+h11: MIT
+typing_extensions: PSF-2.0
+annotated-types: MIT
+idna: BSD-3-Clause
+PyInstaller bootloader: GPL-2.0-or-later with the PyInstaller bootloader exception
+
+This is a practical redistribution summary, not a complete legal audit. Package
+metadata and upstream license texts remain the authoritative sources.
