@@ -7,6 +7,7 @@ export default createRouter({
     { path: '/dashboard', component: () => import('./views/Dashboard.vue') },
     { path: '/analysis', component: () => import('./views/SpaceAnalysis.vue') },
     { path: '/large-items', component: () => import('./views/LargeItems.vue') },
+    { path: '/cleanup', component: () => import('./views/CleanupCenter.vue') },
     { path: '/status', component: () => import('./views/ScanStatus.vue') },
     { path: '/history', component: () => import('./views/History.vue') },
     { path: '/recommendations', component: () => import('./views/Recommendations.vue') },

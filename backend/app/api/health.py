@@ -17,6 +17,7 @@ def health() -> dict[str, object]:
         "capabilities": {
             "scan": "read_only",
             "cleanup": "guarded_recycle",
-            "cleanup_scope": "current_user_localappdata_temp_single_file",
+            "cleanup_scope": "bounded_candidate_batch_and_manual_review",
+            "cleanup_batch_limit": 200,
         },
     }

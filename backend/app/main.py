@@ -43,7 +43,7 @@ if FRONTEND_DIST.is_dir():
 
     @app.get("/{page}", include_in_schema=False)
     def frontend_page(page: str) -> FileResponse:
-        if page not in {"dashboard", "analysis", "large-items", "status", "history", "recommendations", "settings"}:
+        if page not in {"dashboard", "analysis", "large-items", "cleanup", "status", "history", "recommendations", "settings"}:
             from fastapi import HTTPException
             raise HTTPException(status_code=404)
         return FileResponse(FRONTEND_DIST / "index.html")

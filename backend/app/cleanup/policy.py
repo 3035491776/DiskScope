@@ -11,9 +11,9 @@ from typing import Callable, Mapping
 
 PROTECTED_ROOTS = frozenset({
     "windows", "program files", "program files (x86)", "programdata",
-    "recovery", "system volume information", "$recycle.bin",
+    "recovery", "system volume information", "$recycle.bin", "boot", "efi",
 })
-PROTECTED_NAMES = frozenset({"hiberfil.sys", "pagefile.sys", "swapfile.sys"})
+PROTECTED_NAMES = frozenset({"hiberfil.sys", "pagefile.sys", "swapfile.sys", "bootmgr"})
 MIN_BYTES = 1024 * 1024
 MIN_AGE_DAYS = 30
 EXECUTION_RULE_ID = "USER_TEMP_STALE_FILE_V1"

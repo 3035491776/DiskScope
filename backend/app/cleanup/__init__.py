@@ -1,1 +1,1 @@
-"""M6.2 deny-by-default, single-file Windows Recycle Bin execution."""
+"""Deny-by-default single-file and bounded sequential Recycle Bin execution."""

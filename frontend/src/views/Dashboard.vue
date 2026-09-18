@@ -44,6 +44,12 @@ function usedPercent(total: number, used: number): number | null {
       <span>{{ store.result?.source_type === 'snapshot' ? '已保存的扫描记录' : '最新结果' }} · {{ store.result?.coverage === 'limited' ? `${formatNumber(summary.skipped_count)} 个位置未能扫描` : '可访问位置已扫描' }}</span>
       <RouterLink to="/analysis">查看空间分析 →</RouterLink>
     </div>
+    <div v-if="summary" class="next-actions" aria-label="扫描后的操作">
+      <RouterLink to="/analysis"><strong>查看空间占用</strong><span>逐层了解文件夹大小</span></RouterLink>
+      <RouterLink to="/large-items"><strong>查看大文件</strong><span>找到最占空间的项目</span></RouterLink>
+      <RouterLink to="/cleanup" class="primary-next"><strong>清理空间</strong><span>按安全等级选择处理</span></RouterLink>
+      <RouterLink to="/history"><strong>扫描历史</strong><span>比较之前的变化</span></RouterLink>
+    </div>
     <EmptyState v-else title="尚未有扫描结果" description="选择 Windows C: 或当前用户临时文件开始只读扫描；不会自动重扫 C 盘。" />
   </section>
 

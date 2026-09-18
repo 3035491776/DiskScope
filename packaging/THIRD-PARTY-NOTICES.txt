@@ -1,4 +1,4 @@
-DiskScope v0.1.1 test runtime dependency summary
+DiskScope v0.2.0 test runtime dependency summary
 
 DiskScope: MIT
 FastAPI: MIT

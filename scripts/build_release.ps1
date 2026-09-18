@@ -4,7 +4,7 @@ param(
 
 $ErrorActionPreference = 'Stop'
 $projectRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
-$version = '0.1.1'
+$version = '0.2.0'
 $artifactName = "DiskScope-v$version-test-windows-x64"
 $python = Join-Path $projectRoot '.venv\Scripts\python.exe'
 $frontend = Join-Path $projectRoot 'frontend'

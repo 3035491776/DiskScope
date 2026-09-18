@@ -1,8 +1,8 @@
 # DiskScope
 
-DiskScope 是安全、低影响、易理解的 Windows 磁盘空间诊断工具。当前朋友测试版本为 **v0.1.1**。它首先帮助用户看懂 C 盘与临时文件的空间占用、历史变化和建议；扫描只读取文件基本信息，极少数严格合格的文件也只能在逐个确认后移入 Windows 回收站。
+DiskScope 是安全、低影响、易理解的 Windows 磁盘空间诊断工具。当前朋友测试版本为 **v0.2.0**。它先帮助用户看懂 C 盘与临时文件的空间占用，再通过“可处理 / 建议手动检查 / 不建议处理”给出明确下一步；扫描只读取文件基本信息，所有处理都只会移入 Windows 回收站。
 
-朋友测试版说明见 [RELEASE_NOTES_v0.1.1-test.md](RELEASE_NOTES_v0.1.1-test.md)，UI 简化原则和测试计划见 [docs/v0.1.1-user-friendly-ui.md](docs/v0.1.1-user-friendly-ui.md)。v0.1.0 仍保留为冻结的技术基线。
+Cleanup Center 的安全模型和第二轮测试计划见 [docs/v0.2-cleanup-center.md](docs/v0.2-cleanup-center.md) 与 [docs/friend-test-checklist.md](docs/friend-test-checklist.md)。v0.1.0 仍保留为正式技术基线，v0.1.1 作为第一轮普通用户测试基线。
 
 ## 当前实现
 
@@ -24,19 +24,20 @@ DiskScope 是安全、低影响、易理解的 Windows 磁盘空间诊断工具�
 - M7 分离当前结果、下一次扫描范围和 History 比较范围，收拢 Recommendations 信息层级，完善覆盖语义、Dialog 键盘可访问性和启动 fragment 清理；不改变 M6 策略与执行边界。详见 [docs/m7-product-stabilization.md](docs/m7-product-stabilization.md)。
 - M8 基于 cProfile 与可重复 fixture 消除重复 root/path 校验、无效 Top-K 对象构建和高频进度回调，并用 slotted metadata 模型降低目录聚合内存；保持单 worker、逐 entry 取消、reparse/跨卷保护与 schema v6。详见 [docs/m8-scan-performance.md](docs/m8-scan-performance.md)。
 - M9 提供 Windows x64 one-folder portable release：预构建前端、内置 Python runtime，以 `DiskScope.exe` 启动本机服务和默认浏览器；开发数据、日志、Fixture 和源码不会进入发行包。构建与验收见 [docs/m9-packaging-release.md](docs/m9-packaging-release.md)。
+- v0.2 新增“清理空间”、三层分类、独立人工复核授权、每批最多 200 个服务器 item ID、90 秒单次 batch token、逐项 live revalidation、顺序回收和部分成功审计；SQLite 原位升级至 v7。详见 [docs/v0.2-cleanup-center.md](docs/v0.2-cleanup-center.md)。
 - Low-Impact `standard` 策略：单枚举 worker、禁止跨卷和 reparse 跟随；扫描状态展示必要的进程资源概览，内部标识留在技术详情。设计与口径见 [docs/low-impact-scan.md](docs/low-impact-scan.md)。
 - `setup.bat`：检查本机 Python 和 Node.js，创建项目 `.venv`，安装依赖并构建前端。
 - `start.bat`：调用 `launcher/bootstrap.py` 启动后端，等待真实健康检查成功，再打开默认浏览器。
 
 ## 尚未实现
 
-本阶段可显式分析固定 C:\ 和当前用户 Temp 范围，也保留 fixture 与项目工作区；D:\ 整卷、任意路径和网络路径仍拒绝。总览、空间分析、大文件与目录和空间建议可在重启后使用各自 scope 的最新已完成快照。真实处理边界没有扩大；批量、目录、应用缓存、系统转储和永久删除均未开放。扫描器与执行策略都不打开文件正文，安全边界由后端执行。
+本阶段可显式分析固定 C:\ 和当前用户 Temp 范围，也保留 fixture 与项目工作区；D:\ 整卷、任意路径和网络路径仍拒绝。批量处理仅编排逐文件安全检查；目录、应用缓存自动清理、系统转储、Windows/Program Files、回收站自动清空和永久删除均未开放。扫描器与执行策略都不打开文件正文，安全边界由后端执行。
 
 ## Portable Release
 
-普通 Windows 10/11 x64 测试者完整解压 `DiskScope-v0.1.1-test-windows-x64.zip` 后，双击 `DiskScope.exe` 即可；无需 Python、Node.js、pip、npm、PowerShell 或管理员权限。测试包把数据库和日志分别写到自身的 `data\` 与 `logs\`，因此应解压到当前用户可写目录。完整说明见包内 `QUICKSTART.md`。
+普通 Windows 10/11 x64 测试者完整解压 `DiskScope-v0.2.0-test-windows-x64.zip` 后，双击 `DiskScope.exe` 即可；无需 Python、Node.js、pip、npm、PowerShell 或管理员权限。测试包把数据库和日志分别写到自身的 `data\` 与 `logs\`，因此应解压到当前用户可写目录。完整说明见包内 `QUICKSTART.md`。
 
-v0.1.1 朋友测试版未签名，可能出现 SmartScreen 或安全软件声誉提示。不要关闭或绕过系统安全功能；请向提供测试包的人核对 SHA-256。
+v0.2.0 朋友测试版未签名，可能出现 SmartScreen 或安全软件声誉提示。不要关闭或绕过系统安全功能；请向提供测试包的人核对 SHA-256。
 
 ## 源码首次准备与日常启动
 

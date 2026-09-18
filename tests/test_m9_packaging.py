@@ -20,7 +20,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 class PackagingContractTests(unittest.TestCase):
     def test_health_uses_release_version_and_explicit_developer_mode(self) -> None:
         payload = health()
-        self.assertEqual(payload["version"], "0.1.1")
+        self.assertEqual(payload["version"], "0.2.0")
         self.assertEqual(payload["mode"], "guarded_cleanup")
         self.assertIs(payload["developer_mode"], False)
         self.assertEqual(payload["capabilities"]["scan"], "read_only")

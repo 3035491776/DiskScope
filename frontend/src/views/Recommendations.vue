@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
+import { RouterLink } from 'vue-router'
 import BaseDialog from '../components/BaseDialog.vue'
 import EmptyState from '../components/EmptyState.vue'
 import { analyzeSnapshot, createControlledProbe, executeCleanup, getCandidateDetail, getCandidates, getCleanupExecutions, getEligibilityDiagnosticCandidates, getEligibilityDiagnosticDetail, getEligibilityDiagnosticsSummary, prepareCleanup, prepareControlledProbe } from '../services/api'
@@ -288,7 +289,7 @@ watch(scopeKey, () => {
 </script>
 
 <template>
-  <div class="page-heading"><div><p class="eyebrow">空间建议</p><h1>这些位置占用了较多空间</h1><p class="page-description">了解为什么它们值得关注，以及 DiskScope 当前能否安全处理。</p></div><span class="read-only-chip">不会自动处理</span></div>
+  <div class="page-heading"><div><p class="eyebrow">空间建议</p><h1>这些位置占用了较多空间</h1><p class="page-description">这里帮助你理解占用原因；需要选择和处理文件时，请前往“清理空间”。</p></div><RouterLink class="primary-button cleanup-link" to="/cleanup">前往清理空间</RouterLink></div>
   <p class="coverage-note">{{ scopeKey === 'current_user_temp' ? 'DiskScope 只会为极少数至少 30 天未修改、且符合全部安全条件的临时文件提供处理按钮，而且必须由你逐个确认。' : 'C 盘中的项目只用于帮助你理解空间占用，DiskScope 不会自动处理系统文件或应用数据。' }}</p>
   <section class="panel"><div class="panel-heading"><div><p class="eyebrow">建议来源</p><h2>{{ scopeKey === 'current_user_temp' ? '临时文件' : 'Windows C 盘' }} · 上次扫描结果</h2></div><button type="button" class="text-button" :disabled="loading || !latestSnapshot" @click="loadRecommendations(true)">刷新建议</button></div>
     <div class="scan-controls"><label>查看位置<select v-model="scopeKey"><option value="current_user_temp">临时文件</option><option value="system_drive_c">Windows C 盘</option></select></label></div>

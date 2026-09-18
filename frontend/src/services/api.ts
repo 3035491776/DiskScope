@@ -7,7 +7,8 @@ export interface HealthResponse {
   capabilities: {
     scan: 'read_only'
     cleanup: 'guarded_recycle'
-    cleanup_scope: 'current_user_localappdata_temp_single_file'
+    cleanup_scope: 'bounded_candidate_batch_and_manual_review'
+    cleanup_batch_limit: number
   }
 }
 
@@ -34,7 +35,8 @@ export async function getHealth(): Promise<HealthResponse> {
     !('scan' in payload.capabilities) || payload.capabilities.scan !== 'read_only' ||
     !('cleanup' in payload.capabilities) || payload.capabilities.cleanup !== 'guarded_recycle' ||
     !('cleanup_scope' in payload.capabilities) ||
-      payload.capabilities.cleanup_scope !== 'current_user_localappdata_temp_single_file'
+      payload.capabilities.cleanup_scope !== 'bounded_candidate_batch_and_manual_review' ||
+    !('cleanup_batch_limit' in payload.capabilities) || payload.capabilities.cleanup_batch_limit !== 200
   ) {
     throw new Error('服务响应格式不正确')
   }
@@ -374,6 +376,117 @@ export interface CleanupCandidate {
     required_checks: string[]
     real_execution_enabled: boolean
   }
+}
+
+export type CleanupClassification = 'SAFE_ACTIONABLE' | 'REVIEW_REQUIRED' | 'DO_NOT_TOUCH'
+
+export interface CleanupCenterItem {
+  candidate_id: string
+  display_path: string
+  relative_path: string
+  object_type: 'file' | 'directory' | 'group'
+  logical_bytes: number
+  snapshot_mtime: string | null
+  title: string
+  category: string
+  risk_level: string
+  confidence: string
+  reason_code: string
+  source_rule_id: string
+  execution_state: 'available' | 'recycled'
+  classification: CleanupClassification
+  reason: string
+  reason_codes: string[]
+  authorization_policy: string | null
+}
+
+export interface CleanupCenterListing {
+  scope_key: 'system_drive_c' | 'current_user_temp'
+  run: {
+    id: string
+    snapshot_id: string
+    created_at: string
+    scan_completed_at: string
+    coverage: 'complete' | 'limited'
+  }
+  summary: Record<CleanupClassification, { count: number; bytes: number }>
+  items: Record<CleanupClassification, CleanupCenterItem[]>
+  per_class_limit: number
+  truncated: Record<CleanupClassification, boolean>
+}
+
+export interface PreparedCleanupBatch {
+  batch_id: string
+  execution_token: string | null
+  expires_at: string | null
+  mode: 'safe' | 'review' | 'controlled_probe'
+  scope_key: string
+  requested_count: number
+  approved_count: number
+  skipped_count: number
+  requested_bytes: number
+  approved_bytes: number
+  real_execution_enabled: boolean
+  items: Array<{
+    item_id: string
+    candidate_id: string | null
+    probe_id: string | null
+    classification: string
+    decision: 'approved' | 'skipped'
+    reason: string | null
+  }>
+}
+
+export interface CleanupBatchResult {
+  batch_id: string
+  status: 'completed' | 'completed_with_partial_result'
+  mode: 'safe' | 'review' | 'controlled_probe'
+  requested_count: number
+  success_count: number
+  skipped_count: number
+  failed_count: number
+  requested_bytes: number
+  recycled_bytes: number
+  target_mutation: 'recycle_bin' | 'none'
+  items: Array<{
+    item_id: string
+    candidate_id: string | null
+    probe_id: string | null
+    result: 'recycled' | 'skipped' | 'failed'
+    reason: string | null
+    recycled_bytes: number
+  }>
+}
+
+export interface CleanupBatchAudit {
+  batch: Record<string, string | number | null>
+  items: Array<Record<string, string | number | null>>
+}
+
+export function getCleanupClassifications(
+  scopeKey: 'system_drive_c' | 'current_user_temp',
+): Promise<CleanupCenterListing> {
+  return apiJson(`/api/v1/cleanup/classifications?scope=${encodeURIComponent(scopeKey)}`)
+}
+
+export function prepareCleanupBatch(
+  itemIds: string[], mode: 'safe' | 'review', scopeKey: 'system_drive_c' | 'current_user_temp',
+): Promise<PreparedCleanupBatch> {
+  return apiJson('/api/v1/cleanup/batches/prepare', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ item_ids: itemIds, mode, scope_key: scopeKey }),
+  })
+}
+
+export function executeCleanupBatch(executionToken: string): Promise<CleanupBatchResult> {
+  return apiJson('/api/v1/cleanup/batches/execute', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ execution_token: executionToken }),
+  })
+}
+
+export function getCleanupBatch(batchId: string): Promise<CleanupBatchAudit> {
+  return apiJson(`/api/v1/cleanup/batches/${encodeURIComponent(batchId)}`)
 }
 
 export interface CleanupPreflight {

@@ -14,7 +14,7 @@ from app.scanner.models import ScanResult
 from app.snapshots.compare import compare_directories, compare_top_files, delta_ratio
 
 
-SCHEMA_VERSION = 6
+SCHEMA_VERSION = 7
 RETENTION_PER_SCOPE = 20
 DEFAULT_DATABASE = DATA_DIR / "diskscope.db"
 SUMMARY_COLUMNS = ("id AS snapshot_id, scan_id, scope_key, scope_label, status, "
@@ -98,6 +98,9 @@ class SnapshotStore:
                 if version == 5:
                     self._migrate_v5_to_v6(connection)
                     version = 6
+                if version == 6:
+                    self._migrate_v6_to_v7(connection)
+                    version = 7
                 actual = {row[0] for row in connection.execute(
                     "SELECT name FROM sqlite_master WHERE type = 'table'"
                 )}
@@ -112,6 +115,7 @@ class SnapshotStore:
                     "PRAGMA table_info(scan_snapshots)"
                 )}
                 if (version != SCHEMA_VERSION or "controlled_probes" not in actual or
+                        not {"cleanup_batches", "cleanup_batch_items"} <= actual or
                         not v5_columns <= execution_columns or
                         not snapshot_v6_columns <= snapshot_columns):
                     raise SnapshotStoreError("SNAPSHOT_DATABASE_UNAVAILABLE")
@@ -163,6 +167,7 @@ class SnapshotStore:
             SnapshotStore._create_candidate_tables(connection)
             SnapshotStore._create_controlled_probe_table(connection)
             SnapshotStore._create_execution_table_v5(connection)
+            SnapshotStore._create_batch_tables_v7(connection)
             connection.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
             connection.commit()
         except Exception:
@@ -365,6 +370,46 @@ class SnapshotStore:
                         WHERE file_snapshots.snapshot_id = scan_snapshots.id),
                     observed_file_count = file_count""")
                 connection.execute("PRAGMA user_version = 6")
+            connection.commit()
+        except Exception:
+            connection.rollback()
+            raise
+
+    @staticmethod
+    def _create_batch_tables_v7(connection: sqlite3.Connection) -> None:
+        connection.execute("""CREATE TABLE IF NOT EXISTS cleanup_batches (
+            id TEXT PRIMARY KEY, token_hash TEXT UNIQUE, session_id TEXT NOT NULL,
+            mode TEXT NOT NULL CHECK(mode IN ('safe', 'review', 'controlled_probe')),
+            scope_key TEXT NOT NULL, status TEXT NOT NULL, created_at TEXT NOT NULL,
+            expires_at TEXT, started_at TEXT, completed_at TEXT,
+            requested_count INTEGER NOT NULL, approved_count INTEGER NOT NULL,
+            skipped_count INTEGER NOT NULL, success_count INTEGER NOT NULL,
+            failed_count INTEGER NOT NULL, requested_bytes INTEGER NOT NULL,
+            approved_bytes INTEGER NOT NULL, recycled_bytes INTEGER NOT NULL,
+            item_set_digest TEXT NOT NULL, decision_digest TEXT NOT NULL,
+            token_outcome TEXT NOT NULL)""")
+        connection.execute("""CREATE TABLE IF NOT EXISTS cleanup_batch_items (
+            id INTEGER PRIMARY KEY, batch_id TEXT NOT NULL REFERENCES cleanup_batches(id)
+            ON DELETE CASCADE, ordinal INTEGER NOT NULL, item_id TEXT NOT NULL,
+            candidate_id TEXT, probe_id TEXT, classification TEXT NOT NULL,
+            requested_bytes INTEGER NOT NULL, original_path TEXT,
+            prepare_decision TEXT NOT NULL, prepare_reason TEXT,
+            policy_rule_id TEXT, prepared_fingerprint_json TEXT,
+            checks_json TEXT NOT NULL, execute_result TEXT, execute_reason TEXT,
+            recycled_bytes INTEGER NOT NULL, execute_fingerprint_json TEXT,
+            completed_at TEXT, UNIQUE(batch_id, item_id), UNIQUE(batch_id, ordinal))""")
+        connection.execute(
+            "CREATE INDEX IF NOT EXISTS cleanup_batch_created ON cleanup_batches(created_at DESC)")
+        connection.execute(
+            "CREATE INDEX IF NOT EXISTS cleanup_batch_candidate ON cleanup_batch_items(candidate_id)")
+
+    @staticmethod
+    def _migrate_v6_to_v7(connection: sqlite3.Connection) -> None:
+        try:
+            connection.execute("BEGIN IMMEDIATE")
+            if connection.execute("PRAGMA user_version").fetchone()[0] == 6:
+                SnapshotStore._create_batch_tables_v7(connection)
+                connection.execute("PRAGMA user_version = 7")
             connection.commit()
         except Exception:
             connection.rollback()

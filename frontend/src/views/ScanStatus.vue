@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { RouterLink } from 'vue-router'
 import EmptyState from '../components/EmptyState.vue'
 import ScanControls from '../components/ScanControls.vue'
 import ScanProgress from '../components/ScanProgress.vue'
@@ -23,6 +24,12 @@ const store = useScanStore()
       <p v-if="store.scan.state === 'completed' && store.scan.snapshot_status === 'pending'" class="inline-note">正在保存这次扫描记录…</p>
       <p v-if="store.scan.state === 'completed' && store.scan.snapshot_status === 'failed'" class="inline-error" role="alert">扫描已完成，但扫描记录保存失败。当前结果仍可查看。</p>
       <p v-if="store.scan.state === 'completed' && store.scan.scope_key === 'current_user_temp'" class="inline-note">这次发现了 {{ formatNumber(store.scan.observed_file_count) }} 个文件。{{ store.scan.file_metadata_coverage === 'complete' ? '已保存全部文件的详细信息。' : `为了控制资源占用，保存了其中 ${formatNumber(store.scan.persisted_file_count)} 个文件的详细信息。` }}</p>
+      <div v-if="store.scan.state === 'completed'" class="post-scan-actions" aria-label="扫描完成后的操作">
+        <RouterLink to="/analysis">查看空间分析</RouterLink>
+        <RouterLink to="/large-items">查看大文件</RouterLink>
+        <RouterLink to="/cleanup" class="primary-button">清理空间</RouterLink>
+        <RouterLink to="/history">查看扫描历史</RouterLink>
+      </div>
       <details class="coverage-technical"><summary>技术详情</summary><p>任务编号 <span class="mono">{{ store.scan.scan_id }}</span></p><p v-if="store.scan.error_code">错误代码 <span class="mono">{{ store.scan.error_code }}</span></p><p v-if="store.scan.error_message">原始错误信息 <span class="mono">{{ store.scan.error_message }}</span></p><p v-if="store.scan.snapshot_error_code">扫描记录错误代码 <span class="mono">{{ store.scan.snapshot_error_code }}</span></p></details>
     </section>
     <div class="two-column">

@@ -39,6 +39,6 @@ test('frontend bundle contains no development-machine absolute path', () => {
 
 test('friend-test UI displays the complete version', () => {
   const sidebar = read('../src/components/AppSidebar.vue')
-  assert.match(sidebar, /v0\.1\.1 · 安全诊断/)
+  assert.match(sidebar, /v0\.2\.0 · 安全诊断/)
   assert.doesNotMatch(sidebar, />\s*V0\.1 ·/)
 })

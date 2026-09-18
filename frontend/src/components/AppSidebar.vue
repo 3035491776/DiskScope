@@ -5,9 +5,10 @@ const links = [
   { to: '/dashboard', label: '总览', icon: '▦' },
   { to: '/analysis', label: '空间分析', icon: '▤' },
   { to: '/large-items', label: '大文件与目录', icon: '▣' },
-  { to: '/status', label: '扫描状态', icon: '◷' },
+  { to: '/cleanup', label: '清理空间', icon: '♲' },
   { to: '/history', label: '扫描历史', icon: '◫' },
   { to: '/recommendations', label: '空间建议', icon: '◇' },
+  { to: '/status', label: '扫描状态', icon: '◷' },
   { to: '/settings', label: '设置与说明', icon: '⚙' },
 ]
 </script>
@@ -21,6 +22,6 @@ const links = [
         <span class="nav-icon" aria-hidden="true">{{ link.icon }}</span><span>{{ link.label }}</span>
       </RouterLink>
     </nav>
-    <div class="sidebar-foot"><span class="foot-dot"></span> v0.1.1 · 安全诊断</div>
+    <div class="sidebar-foot"><span class="foot-dot"></span> v0.2.0 · 安全诊断</div>
   </aside>
 </template>

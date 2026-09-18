@@ -244,6 +244,7 @@ class ControlledProbeRegistry:
         return {
             "probe_id": record.get("probe_id"), "candidate_id": None,
             "current_path": path, "execution_rule_id": PROBE_RULE_VERSION,
+            "policy_rule_id": PROBE_RULE_VERSION,
             "created_at": record.get("created_at"),
             "snapshot_size": record.get("expected_size"),
             "snapshot_mtime": _iso_from_ns(int(record["expected_mtime_ns"])),

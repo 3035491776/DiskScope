@@ -1,5 +1,5 @@
 param(
-    [string]$ReleaseDirectory = "release\DiskScope-v0.1.1-test-windows-x64",
+    [string]$ReleaseDirectory = "release\DiskScope-v0.2.0-test-windows-x64",
     [switch]$KeepTestDirectory
 )
 
@@ -13,7 +13,7 @@ else {
     Join-Path $projectRoot $ReleaseDirectory
 }
 $sourceRelease = (Resolve-Path $releaseCandidate).Path
-$testRoot = Join-Path ([System.IO.Path]::GetTempPath()) ("DiskScope-v0.1.1-Smoke-" + [guid]::NewGuid().ToString("N"))
+$testRoot = Join-Path ([System.IO.Path]::GetTempPath()) ("DiskScope-v0.2.0-Smoke-" + [guid]::NewGuid().ToString("N"))
 $testRelease = Join-Path $testRoot "DiskScope"
 $baseUri = "http://127.0.0.1:8765"
 $originHeaders = @{ Origin = $baseUri }
@@ -65,7 +65,7 @@ try {
     }
     if ($null -eq $health) { throw "Packaged server did not become healthy within 30 seconds." }
     $startedAt.Stop()
-    if ($health.status -ne "ok" -or $health.version -ne "0.1.1" -or $health.developer_mode) {
+    if ($health.status -ne "ok" -or $health.version -ne "0.2.0" -or $health.developer_mode) {
         throw "Packaged health metadata is invalid."
     }
 
@@ -110,20 +110,24 @@ try {
         throw "Packaged Temp scan did not complete with a saved snapshot."
     }
 
-    $probe = Invoke-RestMethod -Uri "$baseUri/api/v1/cleanup/probes" -Method Post -WebSession $webSession `
-        -Headers $originHeaders -ContentType "application/json" -Body "{}"
-    $prepared = Invoke-RestMethod -Uri "$baseUri/api/v1/cleanup/probes/$($probe.probe_id)/prepare" `
+    $probes = @(1..5 | ForEach-Object {
+        Invoke-RestMethod -Uri "$baseUri/api/v1/cleanup/probes" -Method Post -WebSession $webSession `
+            -Headers $originHeaders -ContentType "application/json" -Body "{}"
+    })
+    $preparedBatch = Invoke-RestMethod -Uri "$baseUri/api/v1/cleanup/batches/probes/prepare" `
         -Method Post -WebSession $webSession -Headers $originHeaders -ContentType "application/json" `
-        -Body (@{ requested_action = "recycle" } | ConvertTo-Json)
-    if (-not $prepared.execution_token -or -not $prepared.real_execution_enabled) {
-        throw "Controlled probe did not pass guarded preparation."
+        -Body (@{ probe_ids = @($probes | ForEach-Object { $_.probe_id }) } | ConvertTo-Json)
+    if (-not $preparedBatch.execution_token -or -not $preparedBatch.real_execution_enabled -or `
+        $preparedBatch.approved_count -ne 5) {
+        throw "Controlled probe batch did not pass guarded preparation."
     }
-    $execution = Invoke-RestMethod -Uri "$baseUri/api/v1/cleanup/execute" -Method Post `
+    $batchExecution = Invoke-RestMethod -Uri "$baseUri/api/v1/cleanup/batches/execute" -Method Post `
         -WebSession $webSession -Headers $originHeaders -ContentType "application/json" `
-        -Body (@{ execution_token = $prepared.execution_token } | ConvertTo-Json)
-    if ($execution.status -ne "completed" -or $execution.final_result -ne "recycled" -or `
-        $execution.target_mutation -ne "recycle_bin") {
-        throw "Controlled probe was not recycled through the guarded workflow."
+        -Body (@{ execution_token = $preparedBatch.execution_token } | ConvertTo-Json)
+    if ($batchExecution.status -ne "completed" -or $batchExecution.success_count -ne 5 -or `
+        $batchExecution.skipped_count -ne 0 -or $batchExecution.failed_count -ne 0 -or `
+        $batchExecution.target_mutation -ne "recycle_bin") {
+        throw "Controlled probe batch was not recycled through the guarded workflow."
     }
 
     $conflictOut = Join-Path $testRoot "port-conflict.stdout.log"
@@ -159,8 +163,8 @@ try {
         process_read_bytes = $scan.metrics.delta_read_bytes
         process_write_bytes = $scan.metrics.delta_write_bytes
         snapshot_id = $scan.snapshot_id
-        probe_id = $probe.probe_id
-        cleanup_execution_id = $execution.execution_id
+        probe_ids = @($probes | ForEach-Object { $_.probe_id })
+        cleanup_batch_id = $batchExecution.batch_id
         port_conflict_exit_code = $conflict.ExitCode
         database_path = $databasePath
     } | ConvertTo-Json
@@ -179,7 +183,7 @@ finally {
     if (-not $KeepTestDirectory -and (Test-Path -LiteralPath $testRoot)) {
         $resolvedTemp = (Resolve-Path ([System.IO.Path]::GetTempPath())).Path.TrimEnd('\')
         $resolvedTest = (Resolve-Path $testRoot).Path
-        if (-not $resolvedTest.StartsWith($resolvedTemp + '\DiskScope-v0.1.1-Smoke-', [StringComparison]::OrdinalIgnoreCase)) {
+        if (-not $resolvedTest.StartsWith($resolvedTemp + '\DiskScope-v0.2.0-Smoke-', [StringComparison]::OrdinalIgnoreCase)) {
             throw "Refusing to remove an unexpected smoke-test directory: $resolvedTest"
         }
         Remove-Item -LiteralPath $resolvedTest -Recurse -Force

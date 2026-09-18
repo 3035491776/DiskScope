@@ -4,6 +4,8 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.cleanup.diagnostics import InvalidDiagnosticsRequest, eligibility_diagnostics
+from app.cleanup.batch import batch_cleanup_service
+from app.cleanup.classification import cleanup_classifications
 from app.cleanup.service import CleanupError, cleanup_service
 from app.intelligence.store import CandidateNotFound, InvalidCandidateScope
 from app.security.session import require_local_origin, require_session
@@ -33,6 +35,23 @@ class PrepareProbeRequest(BaseModel):
     requested_action: str = "recycle"
 
 
+class BatchPrepareRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    item_ids: list[str] = Field(min_length=1, max_length=200)
+    mode: str
+    scope_key: str
+
+
+class ProbeBatchPrepareRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    probe_ids: list[str] = Field(min_length=1, max_length=200)
+
+
+class BatchExecuteRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    execution_token: str = Field(min_length=1, max_length=256)
+
+
 def _error(exc: Exception) -> HTTPException:
     if isinstance(exc, CleanupError):
         return HTTPException(status_code=exc.status_code, detail=exc.code)
@@ -51,6 +70,14 @@ def eligibility_summary(scope: str = "current_user_temp") -> dict[str, object]:
         return eligibility_diagnostics.summary(scope)
     except (InvalidDiagnosticsRequest, InvalidCandidateScope, CandidateNotFound,
             SnapshotStoreError) as exc:
+        raise _error(exc) from exc
+
+
+@router.get("/classifications")
+def classifications(scope: str = "current_user_temp") -> dict[str, object]:
+    try:
+        return cleanup_classifications.listing(scope)
+    except (CandidateNotFound, InvalidCandidateScope, SnapshotStoreError) as exc:
         raise _error(exc) from exc
 
 
@@ -116,6 +143,46 @@ def prepare_probe(probe_id: str, body: PrepareProbeRequest) -> dict[str, object]
 def execute(body: ExecuteRequest) -> dict[str, object]:
     try:
         return cleanup_service.execute(body.execution_token)
+    except (CleanupError, SnapshotStoreError) as exc:
+        raise _error(exc) from exc
+
+
+@router.post("/batches/prepare", dependencies=[Depends(require_local_origin)])
+def prepare_batch(body: BatchPrepareRequest) -> dict[str, object]:
+    try:
+        return batch_cleanup_service.prepare(body.item_ids, body.mode, body.scope_key)
+    except (CleanupError, SnapshotStoreError) as exc:
+        raise _error(exc) from exc
+
+
+@router.post("/batches/probes/prepare", dependencies=[Depends(require_local_origin)])
+def prepare_probe_batch(body: ProbeBatchPrepareRequest) -> dict[str, object]:
+    try:
+        return batch_cleanup_service.prepare_probes(body.probe_ids)
+    except (CleanupError, SnapshotStoreError) as exc:
+        raise _error(exc) from exc
+
+
+@router.post("/batches/execute", dependencies=[Depends(require_local_origin)])
+def execute_batch(body: BatchExecuteRequest) -> dict[str, object]:
+    try:
+        return batch_cleanup_service.execute(body.execution_token)
+    except (CleanupError, SnapshotStoreError) as exc:
+        raise _error(exc) from exc
+
+
+@router.get("/batches")
+def batches(limit: int = Query(20, ge=1, le=100)) -> dict[str, object]:
+    try:
+        return {"items": batch_cleanup_service.list(limit)}
+    except SnapshotStoreError as exc:
+        raise _error(exc) from exc
+
+
+@router.get("/batches/{batch_id}")
+def batch_detail(batch_id: str) -> dict[str, object]:
+    try:
+        return batch_cleanup_service.detail(batch_id)
     except (CleanupError, SnapshotStoreError) as exc:
         raise _error(exc) from exc
 
