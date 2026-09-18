@@ -1,9 +1,18 @@
 import type { ScanStatus, ScanTarget } from '../services/api'
 
 export function targetName(target: ScanTarget): string {
-  return target === 'c_drive' ? 'Windows C:'
-    : target === 'user_temp' ? '当前用户临时文件'
+  return target === 'c_drive' ? 'Windows C 盘'
+    : target === 'user_temp' ? '临时文件'
       : target === 'project' ? 'Project Workspace' : 'Fixture Sample'
+}
+
+export function scanHeading(scan: Pick<ScanStatus, 'scope_key' | 'state'>): string {
+  const name = scan.scope_key === 'system_drive_c' ? 'C 盘'
+    : scan.scope_key === 'current_user_temp' ? '临时文件'
+      : scan.scope_key === 'project_workspace' ? '项目工作区' : '测试样本'
+  return ['queued', 'running', 'cancelling'].includes(scan.state)
+    ? `正在扫描${name === 'C 盘' ? ' ' : ''}${name}`
+    : `${name}扫描结果`
 }
 
 export function stateLabel(state: ScanStatus['state']): string {
@@ -21,7 +30,7 @@ export function completionLabel(scan: ScanStatus): string {
   if (scan.state === 'failed') return '扫描失败'
   if (scan.state === 'cancelled') return '已取消'
   if (scan.state === 'completed' && (scan.errors_count > 0 || scan.skipped_count > 0)) {
-    return '扫描完成 · 部分位置未覆盖'
+    return '扫描完成，但部分位置未能扫描'
   }
   return stateLabel(scan.state)
 }

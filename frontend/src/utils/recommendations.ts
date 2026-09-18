@@ -29,21 +29,21 @@ export function actionLabel(value: string): string {
 }
 
 export function coverageMessage(coverage: string | undefined): string {
-  return coverage === 'limited' ? '本次扫描覆盖受限，建议结果可能不完整。' : ''
+  return coverage === 'limited' ? '本次扫描有部分位置未能扫描，因此建议可能不完整。' : ''
 }
 
-export const topKMessage = '候选基于已保存扫描结果中的大文件 Top-K 与目录聚合，不代表完整文件级清理扫描。'
+export const topKMessage = '这些建议来自已保存的大文件和文件夹信息，不代表所有文件都可处理。'
 
 export function executionStatus(candidate: CleanupCandidate): string {
   if (candidate.execution_hint === 'history_only') return '已移入回收站 · 历史候选'
   if (candidate.execution_hint === 'prepare_available') return '可准备处理 · 执行前将重新验证当前文件'
   const reasons = candidate.execution_policy?.block_reasons ?? []
-  if (reasons.includes('EXECUTION_PROTECTED_PATH')) return '当前执行策略不支持处理 Windows 或系统保护路径中的文件'
-  if (reasons.includes('DIRECTORY_EXECUTION_NOT_SUPPORTED')) return '当前版本不支持处理目录或分组'
-  if (reasons.includes('EXECUTION_CURRENT_USER_TEMP_ONLY')) return '当前版本仅建议；只开放当前用户临时目录中的严格合格文件'
-  if (reasons.includes('EXECUTION_FILE_TOO_RECENT')) return '当前版本仅建议；文件不足 30 天'
-  if (reasons.includes('EXECUTION_EXTENSION_BLOCKED')) return '当前版本仅建议；文件类型不在首批处理范围'
-  return '当前版本仅建议'
+  if (reasons.includes('EXECUTION_PROTECTED_PATH')) return '暂不符合处理条件：位于 Windows 或系统保护位置'
+  if (reasons.includes('DIRECTORY_EXECUTION_NOT_SUPPORTED')) return '暂不符合处理条件：当前版本不处理文件夹或分组'
+  if (reasons.includes('EXECUTION_CURRENT_USER_TEMP_ONLY')) return '暂不符合处理条件：只允许严格合格的当前用户临时文件'
+  if (reasons.includes('EXECUTION_FILE_TOO_RECENT')) return '暂不符合处理条件：文件还比较新'
+  if (reasons.includes('EXECUTION_EXTENSION_BLOCKED')) return '暂不符合处理条件：这种文件类型不会自动处理'
+  return '暂不符合处理条件'
 }
 
 export function executionReasonLabel(code: string): string {
@@ -100,15 +100,15 @@ export function policyReasonTitle(code: string): string {
     UNKNOWN_CATEGORY: '文件分类未知',
     EXECUTION_CATEGORY_BLOCKED: '文件分类不符合要求',
     UNKNOWN_RISK: '风险等级未知',
-    EXECUTION_RISK_BLOCKED: '风险等级不符合要求',
+    EXECUTION_RISK_BLOCKED: '当前位置风险较高',
     UNKNOWN_CONFIDENCE: '识别置信度未知',
     EXECUTION_CONFIDENCE_BLOCKED: '识别置信度不足',
     EXECUTION_POLICY_BLOCKED: '候选规则不匹配',
-    EXECUTION_EXTENSION_BLOCKED: '文件类型被安全策略排除',
+    EXECUTION_EXTENSION_BLOCKED: '这种文件类型不会自动处理',
     EXECUTION_SIZE_BELOW_THRESHOLD: '文件小于当前处理下限',
     UNKNOWN_MTIME: '修改时间未知',
     EXECUTION_TIMESTAMP_INVALID: '修改时间无法可靠判断',
-    EXECUTION_FILE_TOO_RECENT: '文件不足 30 天',
+    EXECUTION_FILE_TOO_RECENT: '文件还比较新',
     TARGET_CHANGED_SINCE_SCAN: '文件在扫描后发生变化',
     TARGET_NO_LONGER_EXISTS: '文件已不存在',
     TARGET_METADATA_ERROR: '无法读取当前元数据',
@@ -141,5 +141,5 @@ export function policyReasonExplanation(code: string): string {
 }
 
 export function eligibilityDecisionLabel(value: string): string {
-  return value === 'eligible_for_recycle' ? '可进入准备处理' : '当前策略不允许处理'
+  return value === 'eligible_for_recycle' ? '可以准备处理' : '暂不符合处理条件'
 }

@@ -37,8 +37,8 @@ test('frontend bundle contains no development-machine absolute path', () => {
   assert.match(api, /scope_key: target === 'project' \? 'project_workspace' : 'fixture_sample'/)
 })
 
-test('release UI displays the complete frozen version', () => {
+test('friend-test UI displays the complete version', () => {
   const sidebar = read('../src/components/AppSidebar.vue')
-  assert.match(sidebar, /v0\.1\.0 · 只读诊断模式/)
+  assert.match(sidebar, /v0\.1\.1 · 安全诊断/)
   assert.doesNotMatch(sidebar, />\s*V0\.1 ·/)
 })

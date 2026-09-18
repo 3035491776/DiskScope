@@ -1,8 +1,8 @@
 # DiskScope
 
-DiskScope 是安全、低影响、可解释的 Windows 磁盘空间诊断工具。当前正式版本为 **v0.1.0**。它首先帮助用户理解 C: 与当前用户 Temp 的磁盘占用、历史变化和可解释建议；扫描保持 metadata-only，受保护执行门仍只允许逐个确认的严格合格文件进入 Windows 回收站。
+DiskScope 是安全、低影响、易理解的 Windows 磁盘空间诊断工具。当前朋友测试版本为 **v0.1.1**。它首先帮助用户看懂 C 盘与临时文件的空间占用、历史变化和建议；扫描只读取文件基本信息，极少数严格合格的文件也只能在逐个确认后移入 Windows 回收站。
 
-正式发布说明见 [RELEASE_NOTES_v0.1.0.md](RELEASE_NOTES_v0.1.0.md)，最终制品与验收记录见 [docs/m10-release.md](docs/m10-release.md)。
+朋友测试版说明见 [RELEASE_NOTES_v0.1.1-test.md](RELEASE_NOTES_v0.1.1-test.md)，UI 简化原则和测试计划见 [docs/v0.1.1-user-friendly-ui.md](docs/v0.1.1-user-friendly-ui.md)。v0.1.0 仍保留为冻结的技术基线。
 
 ## 当前实现
 
@@ -34,9 +34,9 @@ DiskScope 是安全、低影响、可解释的 Windows 磁盘空间诊断工具�
 
 ## Portable Release
 
-普通 Windows 10/11 x64 用户下载并解压 `DiskScope-v0.1.0-windows-x64.zip` 后，双击 `DiskScope.exe` 即可；无需 Python、Node.js、pip、npm、PowerShell 或管理员权限。发行版把数据库和日志分别写到自身的 `data\` 与 `logs\`，因此应解压到当前用户可写目录，升级时保留 `data\`。完整说明见发行包内 `QUICKSTART.md`。
+普通 Windows 10/11 x64 测试者完整解压 `DiskScope-v0.1.1-test-windows-x64.zip` 后，双击 `DiskScope.exe` 即可；无需 Python、Node.js、pip、npm、PowerShell 或管理员权限。测试包把数据库和日志分别写到自身的 `data\` 与 `logs\`，因此应解压到当前用户可写目录。完整说明见包内 `QUICKSTART.md`。
 
-v0.1.0 为未签名构建，可能出现 SmartScreen 或安全软件声誉提示。不要关闭或绕过系统安全功能；请从可信发布来源获取文件并核对 SHA-256。
+v0.1.1 朋友测试版未签名，可能出现 SmartScreen 或安全软件声誉提示。不要关闭或绕过系统安全功能；请向提供测试包的人核对 SHA-256。
 
 ## 源码首次准备与日常启动
 

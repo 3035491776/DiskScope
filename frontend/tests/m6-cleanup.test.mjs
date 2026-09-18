@@ -9,8 +9,8 @@ const page = readFileSync(new URL('../src/views/Recommendations.vue', import.met
 test('M6.2 UI exposes single-file guarded recycle and no bulk action', () => {
   assert.match(page, /execution_hint === 'prepare_available'/)
   assert.match(page, /准备处理/)
-  assert.match(executionStatus({ execution_hint: 'suggestion_only' }), /当前版本仅建议/)
-  assert.match(page, /当前状态预检/)
+  assert.match(executionStatus({ execution_hint: 'suggestion_only' }), /暂不符合处理条件/)
+  assert.match(page, /再次检查当前文件/)
   assert.match(page, /扫描时：/)
   assert.match(page, /当前：/)
   assert.match(page, /USER_TEMP_STALE_FILE_V1/)
@@ -57,8 +57,8 @@ test('M6.1 API sends no client path and executes only a server token', async () 
 
 test('protected and directory candidates explain why execution is unavailable', () => {
   const base = { execution_hint: 'suggestion_only', execution_policy: { block_reasons: [] } }
-  assert.match(executionStatus({ ...base, execution_policy: { block_reasons: ['EXECUTION_PROTECTED_PATH'] } }), /系统保护路径/)
-  assert.match(executionStatus({ ...base, execution_policy: { block_reasons: ['DIRECTORY_EXECUTION_NOT_SUPPORTED'] } }), /目录或分组/)
+  assert.match(executionStatus({ ...base, execution_policy: { block_reasons: ['EXECUTION_PROTECTED_PATH'] } }), /系统保护位置/)
+  assert.match(executionStatus({ ...base, execution_policy: { block_reasons: ['DIRECTORY_EXECUTION_NOT_SUPPORTED'] } }), /文件夹或分组/)
   assert.match(executionStatus({ execution_hint: 'prepare_available' }), /可准备处理/)
   assert.match(executionReasonLabel('TARGET_CHANGED_SINCE_SCAN'), /已发生变化/)
   assert.match(executionReasonLabel('ACCESS_DENIED'), /不会绕过 Windows 权限/)

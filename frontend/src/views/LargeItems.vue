@@ -56,20 +56,20 @@ async function copyPath(relativePath: string) {
 </script>
 
 <template>
-  <div class="page-heading"><div><p class="eyebrow">EXPLORE / LARGEST ITEMS</p><h1>大文件与目录</h1><p class="page-description">仅显示扫描结果中的 Top 100；默认展示相对路径，不打开或修改文件。</p></div></div>
+  <div class="page-heading"><div><p class="eyebrow">占用最大的项目</p><h1>大文件与文件夹</h1><p class="page-description">查看本次扫描中最大的 100 个文件或文件夹；DiskScope 不会打开或修改它们。</p></div></div>
   <ResultSourceBanner />
   <EmptyState v-if="!store.result || store.result.source_type === 'none'" title="暂无可分析的项目" description="先完成一次固定范围扫描，再查看大文件与大目录。" />
   <section v-else class="panel table-panel">
-    <div class="tab-row" role="tablist" aria-label="大项目类型"><button type="button" role="tab" :aria-selected="tab === 'files'" :class="{ active: tab === 'files' }" @click="tab = 'files'">大文件</button><button type="button" role="tab" :aria-selected="tab === 'directories'" :class="{ active: tab === 'directories' }" @click="tab = 'directories'">大目录</button><button type="button" class="sort-button" @click="descending = !descending">大小：{{ descending ? '从大到小 ↓' : '从小到大 ↑' }}</button></div>
+    <div class="tab-row" role="tablist" aria-label="大项目类型"><button type="button" role="tab" :aria-selected="tab === 'files'" :class="{ active: tab === 'files' }" @click="tab = 'files'">大文件</button><button type="button" role="tab" :aria-selected="tab === 'directories'" :class="{ active: tab === 'directories' }" @click="tab = 'directories'">大文件夹</button><button type="button" class="sort-button" @click="descending = !descending">大小：{{ descending ? '从大到小 ↓' : '从小到大 ↑' }}</button></div>
     <p v-if="message" class="inline-note" role="status">{{ message }}</p>
-    <p v-if="loading" class="inline-note">正在读取 Top 项目…</p>
+    <p v-if="loading" class="inline-note">正在读取最大的项目…</p>
     <template v-else-if="tab === 'files'">
       <EmptyState v-if="!sortedFiles.length" title="没有可显示的大文件" description="此扫描范围内没有文件，或扫描未覆盖到文件。" />
-      <div v-else class="table-scroll"><table class="large-items-table"><thead><tr><th>名称</th><th>相对路径</th><th>大小</th><th v-if="store.resultTarget === 'c_drive'">类型</th><th>修改时间</th><th>所属目录</th><th>操作</th></tr></thead><tbody><tr v-for="file in sortedFiles" :key="file.relative_path"><td class="strong-cell path-cell" :title="file.name">{{ file.name }}</td><td class="path-cell" :title="file.relative_path">{{ file.relative_path }}</td><td class="size-cell">{{ formatBytes(file.size_bytes) }}</td><td v-if="store.resultTarget === 'c_drive'">{{ file.category_label || '其他' }}</td><td>{{ formatLocalTime(file.mtime) }}</td><td class="path-cell" :title="file.parent">{{ file.parent || '扫描根' }}</td><td><button class="table-action" type="button" :aria-label="`复制 ${file.name} 的路径`" @click="copyPath(file.relative_path)">复制路径</button></td></tr></tbody></table></div>
+      <div v-else class="table-scroll"><table class="large-items-table"><thead><tr><th>文件名</th><th>所在位置</th><th>大小</th><th>最后修改时间</th><th>操作</th></tr></thead><tbody><tr v-for="file in sortedFiles" :key="file.relative_path"><td class="strong-cell path-cell" :title="file.name">{{ file.name }}</td><td class="path-cell" :title="absolutePath(file.relative_path)">{{ absolutePath(file.relative_path) }}</td><td class="size-cell">{{ formatBytes(file.size_bytes) }}</td><td>{{ formatLocalTime(file.mtime) }}</td><td><button class="table-action" type="button" :aria-label="`复制 ${file.name} 的路径`" @click="copyPath(file.relative_path)">复制路径</button></td></tr></tbody></table></div>
     </template>
     <template v-else>
-      <EmptyState v-if="!sortedDirectories.length" title="没有可显示的大目录" description="此扫描范围内没有子目录。" />
-      <div v-else class="table-scroll"><table class="large-items-table"><thead><tr><th>目录</th><th>相对路径</th><th>逻辑大小</th><th v-if="store.resultTarget === 'c_drive'">类型</th><th>文件</th><th>子目录</th><th>覆盖</th></tr></thead><tbody><tr v-for="directory in sortedDirectories" :key="directory.node_id"><td class="strong-cell path-cell" :title="directory.name">{{ directory.name }}</td><td class="path-cell" :title="directory.relative_path">{{ directory.relative_path }}</td><td class="size-cell">{{ formatBytes(directory.subtree_bytes) }}</td><td v-if="store.resultTarget === 'c_drive'">{{ directory.category_label || '其他目录' }}</td><td>{{ formatNumber(directory.file_count) }}</td><td>{{ formatNumber(directory.children_count) }}</td><td>{{ directory.coverage === 'complete' ? '完整' : '受限' }}</td></tr></tbody></table></div>
+      <EmptyState v-if="!sortedDirectories.length" title="没有可显示的大文件夹" description="这个扫描位置内没有子文件夹。" />
+      <div v-else class="table-scroll"><table class="large-items-table"><thead><tr><th>文件夹</th><th>所在位置</th><th>大小</th><th>文件</th><th>子文件夹</th><th>扫描完整度</th></tr></thead><tbody><tr v-for="directory in sortedDirectories" :key="directory.node_id"><td class="strong-cell path-cell" :title="directory.name">{{ directory.name }}</td><td class="path-cell" :title="absolutePath(directory.relative_path)">{{ absolutePath(directory.relative_path) }}</td><td class="size-cell">{{ formatBytes(directory.subtree_bytes) }}</td><td>{{ formatNumber(directory.file_count) }}</td><td>{{ formatNumber(directory.children_count) }}</td><td>{{ directory.coverage === 'complete' ? '完整' : '部分位置未扫描' }}</td></tr></tbody></table></div>
     </template>
   </section>
 </template>

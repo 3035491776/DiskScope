@@ -123,7 +123,7 @@ class ApiScanTests(unittest.TestCase):
         status, _, health = asyncio.run(request("GET", "/health"))
         self.assertEqual(status, 200)
         self.assertEqual(health["status"], "ok")
-        self.assertEqual(health["version"], "0.1.0")
+        self.assertEqual(health["version"], "0.1.1")
 
 
 if __name__ == "__main__":

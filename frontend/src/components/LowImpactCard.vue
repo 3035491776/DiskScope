@@ -1,14 +1,14 @@
 <template>
   <section class="panel low-impact-card" aria-labelledby="low-impact-title">
-    <div class="panel-heading"><div><p class="eyebrow">只读保障</p><h2 id="low-impact-title">Low-Impact Scan</h2></div><span class="safe-badge">已启用</span></div>
+    <div class="panel-heading"><div><p class="eyebrow">安全说明</p><h2 id="low-impact-title">扫描期间不会修改你的文件</h2></div><span class="safe-badge">安全扫描</span></div>
     <div class="policy-grid">
-      <div><span>文件元数据</span><strong>仅此范围</strong></div>
-      <div><span>扫描并发</span><strong>1</strong></div>
-      <div><span>链接与挂载点</span><strong>不跟随</strong></div>
-      <div><span>跨卷扫描</span><strong>禁止</strong></div>
-      <div><span>整卷扫描</span><strong>仅 C: 显式只读</strong></div>
+      <div><span>读取内容</span><strong>仅文件基本信息</strong></div>
+      <div><span>同时扫描</span><strong>一次一个位置</strong></div>
+      <div><span>系统链接</span><strong>自动跳过</strong></div>
+      <div><span>其他磁盘</span><strong>不会进入</strong></div>
+      <div><span>完整磁盘</span><strong>只支持 C 盘</strong></div>
       <div><span>文件正文</span><strong>不读取</strong></div>
     </div>
-    <details class="policy-details"><summary>为什么这样扫描？</summary><p>DiskScope 只读取目录和文件的大小等元数据，每次只有一个扫描任务，尽量减少对日常使用的影响。C: 仅在显式确认后按专用只读策略扫描；D: 整卷仍锁定。</p></details>
+    <details class="policy-details"><summary>技术详情</summary><p>DiskScope 只读取文件和文件夹的大小、时间等基本信息，每次只有一个扫描任务，不跟随系统链接，不跨磁盘，也不读取文件正文。</p></details>
   </section>
 </template>

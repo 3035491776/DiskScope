@@ -14,11 +14,11 @@ test('signed byte and percentage changes avoid non-finite output', () => {
 })
 
 test('coverage, empty and error messages remain explicit', () => {
-  assert.equal(coverageWarning(true), '其中一次扫描覆盖受限，变化结果可能不完整。')
+  assert.equal(coverageWarning(true), '其中一次扫描有部分位置未能扫描，变化结果可能不完整。')
   assert.equal(coverageWarning(false), '')
-  assert.match(historyEmptyMessage(0), /还没有历史快照/)
+  assert.match(historyEmptyMessage(0), /还没有历史扫描记录/)
   assert.match(historyEmptyMessage(1), /再完成一次相同范围扫描/)
-  assert.match(historyErrorMessage(new Error('服务返回 400')), /扫描范围不一致/)
-  assert.match(historyErrorMessage(new Error('服务返回 404')), /快照不存在/)
+  assert.match(historyErrorMessage(new Error('服务返回 400')), /位置不同/)
+  assert.match(historyErrorMessage(new Error('服务返回 404')), /扫描记录不存在/)
   assert.match(historyErrorMessage(new Error('服务返回 503')), /数据库暂时不可用/)
 })

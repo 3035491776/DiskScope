@@ -288,36 +288,36 @@ watch(scopeKey, () => {
 </script>
 
 <template>
-  <div class="page-heading"><div><p class="eyebrow">RECOMMENDATIONS / SAVED SNAPSHOT</p><h1>空间建议</h1><p class="page-description">解释哪些项目值得关注，以及识别依据与处理风险。</p></div><span class="read-only-chip">严格门禁 · 单文件回收站</span></div>
-  <p class="coverage-note">{{ scopeKey === 'current_user_temp' ? '历史快照不是处理授权。只有当前用户 LocalAppData\\Temp 中至少 30 天未修改、达到 1 MiB 的高置信低风险临时普通文件，才能逐个重新验证并由您确认移入回收站。' : 'C: 范围只用于空间建议与风险解释，不提供处理操作；当前受保护处理能力仅覆盖严格合格的当前用户 Temp 单文件。' }}</p>
-  <section class="panel"><div class="panel-heading"><div><p class="eyebrow">SOURCE</p><h2>{{ scopeKey === 'current_user_temp' ? '当前用户临时文件' : 'Windows C:' }} · 基于已保存扫描结果</h2></div><button type="button" class="text-button" :disabled="loading || !latestSnapshot" @click="loadRecommendations(true)">重新分析已保存快照</button></div>
-    <div class="scan-controls"><label>分析范围<select v-model="scopeKey"><option value="current_user_temp">当前用户临时文件</option><option value="system_drive_c">Windows C:</option></select></label></div>
+  <div class="page-heading"><div><p class="eyebrow">空间建议</p><h1>这些位置占用了较多空间</h1><p class="page-description">了解为什么它们值得关注，以及 DiskScope 当前能否安全处理。</p></div><span class="read-only-chip">不会自动处理</span></div>
+  <p class="coverage-note">{{ scopeKey === 'current_user_temp' ? 'DiskScope 只会为极少数至少 30 天未修改、且符合全部安全条件的临时文件提供处理按钮，而且必须由你逐个确认。' : 'C 盘中的项目只用于帮助你理解空间占用，DiskScope 不会自动处理系统文件或应用数据。' }}</p>
+  <section class="panel"><div class="panel-heading"><div><p class="eyebrow">建议来源</p><h2>{{ scopeKey === 'current_user_temp' ? '临时文件' : 'Windows C 盘' }} · 上次扫描结果</h2></div><button type="button" class="text-button" :disabled="loading || !latestSnapshot" @click="loadRecommendations(true)">刷新建议</button></div>
+    <div class="scan-controls"><label>查看位置<select v-model="scopeKey"><option value="current_user_temp">临时文件</option><option value="system_drive_c">Windows C 盘</option></select></label></div>
     <p v-if="!store.sessionReady" class="inline-note">请通过 DiskScope 启动入口重新打开本地页面，以查看已保存的扫描结果。</p>
     <template v-else><div class="recommendation-meta"><span>扫描时间：{{ formatLocalTime(latestSnapshot?.completed_at) }}</span><span v-if="run">建议分析耗时：{{ formatSeconds(run.duration_ms) }}</span></div>
       <p v-if="coverageMessage(latestSnapshot?.coverage)" class="coverage-note">{{ coverageMessage(latestSnapshot?.coverage) }}</p>
-      <p class="inline-note">{{ scopeKey === 'current_user_temp' ? `文件元数据 ${latestSnapshot?.persisted_file_count ?? 0} / ${latestSnapshot?.observed_file_count ?? 0}；${(latestSnapshot?.persisted_file_count ?? 0) === (latestSnapshot?.observed_file_count ?? 0) ? '覆盖完整。' : '已达到有界持久化上限，结果覆盖受限。'}` : topKMessage }}</p>
-      <details class="technical-details"><summary>来源技术详情</summary><p>规则版本：{{ run?.rule_version ?? 'rules-v1.0.0' }} · 分析范围：大文件 Top-K + 目录聚合</p></details>
+      <p class="inline-note">{{ scopeKey === 'current_user_temp' ? `这次发现了 ${latestSnapshot?.observed_file_count ?? 0} 个文件；${(latestSnapshot?.persisted_file_count ?? 0) === (latestSnapshot?.observed_file_count ?? 0) ? '已保存全部文件的详细信息。' : `为了控制资源占用，保存了其中 ${latestSnapshot?.persisted_file_count ?? 0} 个文件的详细信息。`}` : topKMessage }}</p>
+      <details class="technical-details"><summary>技术详情</summary><p>规则版本：{{ run?.rule_version ?? 'rules-v1.0.0' }} · 分析来源：大文件 Top-K 与文件夹汇总</p></details>
     </template>
   </section>
   <p v-if="error" class="panel inline-error" role="alert">{{ error }}</p>
-  <p v-if="analyzing" class="panel inline-note" role="status">正在分析已保存的快照元数据；不会重新扫描磁盘，也不会执行处理…</p>
+  <p v-if="analyzing" class="panel inline-note" role="status">正在分析上次扫描记录；不会重新扫描磁盘，也不会处理文件…</p>
   <p v-else-if="loading" class="panel inline-note" role="status">正在读取已保存的建议…</p>
-  <EmptyState v-else-if="store.sessionReady && !latestSnapshot" :title="scopeKey === 'current_user_temp' ? '尚无当前用户 Temp 快照' : '尚无 C 盘快照'" description="完成对应范围的只读扫描后，这里会分析已保存结果；本页不会启动扫描。" />
-  <EmptyState v-else-if="store.sessionReady && !currentRun" title="等待快照分析" description="最新 C 盘快照已保存，但候选尚未生成。可重新分析已保存快照，无需扫描磁盘。" />
+  <EmptyState v-else-if="store.sessionReady && !latestSnapshot" :title="scopeKey === 'current_user_temp' ? '还没有临时文件扫描记录' : '还没有 C 盘扫描记录'" description="完成对应位置的安全扫描后，这里会根据保存的结果给出建议。" />
+  <EmptyState v-else-if="store.sessionReady && !currentRun" title="正在准备建议" description="扫描记录已保存，但建议还未生成。点击“刷新建议”即可，无需重新扫描磁盘。" />
   <template v-else-if="currentRun && summary">
-    <div class="metric-grid"><div class="metric-card"><span>值得关注的空间</span><strong>{{ formatBytes(summary.candidate_bytes) }}</strong><small>候选元数据统计，不是可释放空间</small></div><div class="metric-card"><span>候选项目</span><strong>{{ formatNumber(summary.candidate_count) }}</strong><small>分组不重复计数成员</small></div><div class="metric-card"><span>符合处理条件</span><strong>{{ formatNumber(eligibility?.eligible_count) }}</strong><small>{{ formatBytes(eligibility?.eligible_bytes) }} · 仅只读评估</small></div><div class="metric-card"><span>需要人工确认</span><strong>{{ formatNumber(summary.review_count) }}</strong><small>规则建议复核</small></div><div class="metric-card"><span>受保护项目</span><strong>{{ formatNumber(summary.protected_count) }}</strong><small>不计入值得关注空间</small></div></div>
-    <p v-if="eligibility?.eligible_count" class="coverage-note">发现符合当前处理条件的候选。DiskScope 不会自动准备或执行，请先人工检查。</p>
+    <div class="metric-grid"><div class="metric-card"><span>值得关注的空间</span><strong>{{ formatBytes(summary.candidate_bytes) }}</strong><small>不等于可以直接释放的空间</small></div><div class="metric-card"><span>发现的建议项</span><strong>{{ formatNumber(summary.candidate_count) }}</strong><small>相同分组不会重复计算</small></div><div class="metric-card"><span>可以准备处理</span><strong>{{ formatNumber(eligibility?.eligible_count) }}</strong><small>{{ formatBytes(eligibility?.eligible_bytes) }} · 仍需逐个确认</small></div><div class="metric-card"><span>需要你判断</span><strong>{{ formatNumber(summary.review_count) }}</strong><small>DiskScope 不会自动处理</small></div><div class="metric-card"><span>受保护项目</span><strong>{{ formatNumber(summary.protected_count) }}</strong><small>不会提供处理按钮</small></div></div>
+    <p v-if="eligibility?.eligible_count" class="coverage-note">发现符合当前处理条件的文件。DiskScope 不会自动处理，请先查看原因和文件位置。</p>
     <details v-if="diagnosticSummary" class="panel eligibility-diagnostics advanced-details">
-      <summary class="advanced-summary"><span><small>资格说明</small><strong id="eligibility-heading">处理资格说明</strong></span><span>展开查看</span></summary>
+      <summary class="advanced-summary"><span><small>原因说明</small><strong id="eligibility-heading">为什么有些文件不能处理？</strong></span><span>展开查看</span></summary>
       <div class="metric-grid diagnostic-metrics">
-        <div class="metric-card"><span>已评估候选</span><strong>{{ formatNumber(diagnosticSummary.evaluated_candidate_count) }}</strong><small>本次候选分析范围</small></div>
+        <div class="metric-card"><span>已检查的建议项</span><strong>{{ formatNumber(diagnosticSummary.evaluated_candidate_count) }}</strong><small>来自这次建议分析</small></div>
         <div class="metric-card"><span>符合当前条件</span><strong>{{ formatNumber(diagnosticSummary.eligible_count) }}</strong><small>{{ formatBytes(diagnosticSummary.eligible_bytes) }}</small></div>
         <div class="metric-card"><span>被安全规则阻止</span><strong>{{ formatNumber(diagnosticSummary.blocked_count) }}</strong><small>{{ formatBytes(diagnosticSummary.blocked_bytes) }}</small></div>
         <div class="metric-card"><span>评估异常</span><strong>{{ formatNumber(diagnosticSummary.evaluation_error_count) }}</strong><small>异常按不符合条件处理</small></div>
       </div>
-      <p v-if="diagnosticSummary.eligible_count === 0" class="coverage-note"><strong>当前已分析候选中，没有文件同时满足所有处理条件。</strong> 这是保守策略在有限元数据覆盖下的诊断结果。</p>
+      <p v-if="diagnosticSummary.eligible_count === 0" class="coverage-note"><strong>当前已分析的建议项中，没有文件同时满足所有处理条件。</strong> 这不代表没有临时文件，只表示 DiskScope 当前的安全规则不会自动处理这些文件。</p>
       <p v-else class="coverage-note">符合条件表示候选可以进入准备处理；执行前仍需重新核对文件当前状态，并由您逐个确认。</p>
-      <p v-if="diagnosticSummary.coverage.file_metadata_coverage === 'limited'" class="coverage-note">资格统计仅覆盖本次持久化的 {{ formatNumber(diagnosticSummary.coverage.persisted_file_count) }} / {{ formatNumber(diagnosticSummary.coverage.observed_file_count) }} 条文件元数据，不能代表整个 Temp 的绝对结论。</p>
+      <p v-if="diagnosticSummary.coverage.file_metadata_coverage === 'limited'" class="coverage-note">这次发现了 {{ formatNumber(diagnosticSummary.coverage.observed_file_count) }} 个文件。为了控制资源占用，只保存了其中 {{ formatNumber(diagnosticSummary.coverage.persisted_file_count) }} 个文件的详细信息，因此这里不是对所有临时文件的完整结论。</p>
       <details class="technical-details" @toggle="toggleTechnicalDiagnostics"><summary>高级技术详情</summary><template v-if="showTechnicalDiagnostics"><div class="diagnostic-policy-grid">
         <div><span>候选识别规则版本</span><strong>{{ diagnosticSummary.candidate_rule_version }}</strong></div>
         <div><span>执行策略</span><strong>{{ diagnosticSummary.policy_rule_id }}</strong></div>
@@ -328,22 +328,22 @@ watch(scopeKey, () => {
         <div><h3>主要阻止原因</h3><p class="fine-print">每个候选只计入一个最高优先级原因，合计等于已评估候选数。</p><div class="reason-list"><div v-for="reason in diagnosticSummary.primary_reason_distribution" :key="reason.reason_code"><span><strong>{{ policyReasonTitle(reason.reason_code) }}</strong><small>{{ reason.reason_code }}</small></span><span>{{ formatNumber(reason.candidate_count) }} 项 · {{ formatBytes(reason.total_bytes) }}</span></div></div></div>
         <div><h3>全部原因</h3><p class="fine-print">一个候选可同时有多个原因，因此此处数量之和可能高于候选数。</p><div class="reason-list"><div v-for="reason in diagnosticSummary.all_reason_distribution" :key="reason.reason_code"><span><strong>{{ policyReasonTitle(reason.reason_code) }}</strong><small>{{ reason.reason_code }}</small></span><span>{{ formatNumber(reason.candidate_count) }} 项 · {{ formatBytes(reason.total_bytes) }}</span></div></div></div>
       </div>
-      <div class="diagnostic-toolbar" aria-label="资格诊断筛选与排序">
+      <div class="diagnostic-toolbar" aria-label="处理条件说明筛选与排序">
         <label>筛选<select v-model="diagnosticFilter"><option value="all">全部</option><option value="eligible">可准备处理</option><option value="blocked">策略阻止</option><option value="high_risk">高风险</option><option value="recent">不足 30 天</option><option value="extension_blocked">扩展名阻止</option></select></label>
         <label>排序<select v-model="diagnosticSort"><option value="size_desc">按大小降序</option><option value="age_desc">按文件年龄降序</option></select></label>
       </div>
-      <p v-if="diagnosticLoading" class="inline-note" role="status">正在读取资格诊断…</p>
+      <p v-if="diagnosticLoading" class="inline-note" role="status">正在读取原因说明…</p>
       <p v-if="diagnosticError" class="inline-error" role="alert">{{ diagnosticError }}</p>
       <div v-if="diagnosticListing" class="table-scroll">
-        <table class="diagnostic-table"><thead><tr><th>候选</th><th>大小</th><th>文件年龄</th><th>诊断</th><th></th></tr></thead><tbody><tr v-for="item in diagnosticListing.items" :key="item.candidate_id"><td><strong class="strong-cell">{{ item.file_name }}</strong><span class="path-cell" :title="item.display_path">{{ item.display_path }}</span></td><td class="size-cell">{{ formatBytes(item.logical_bytes) }}</td><td>{{ formatAge(item.age_days) }}</td><td><strong>{{ eligibilityDecisionLabel(item.decision.eligibility) }}</strong><span>{{ policyReasonTitle(item.decision.primary_reason) }}</span></td><td><button type="button" class="table-action" :aria-label="`查看 ${item.file_name} 的资格原因`" @click="openDetail(item)">查看原因</button></td></tr></tbody></table>
-        <p v-if="!diagnosticListing.items.length" class="inline-note">此筛选条件下暂无候选。</p>
+        <table class="diagnostic-table"><thead><tr><th>文件</th><th>大小</th><th>距上次修改</th><th>当前状态</th><th></th></tr></thead><tbody><tr v-for="item in diagnosticListing.items" :key="item.candidate_id"><td><strong class="strong-cell">{{ item.file_name }}</strong><span class="path-cell" :title="item.display_path">{{ item.display_path }}</span></td><td class="size-cell">{{ formatBytes(item.logical_bytes) }}</td><td>{{ formatAge(item.age_days) }}</td><td><strong>{{ eligibilityDecisionLabel(item.decision.eligibility) }}</strong><span>{{ policyReasonTitle(item.decision.primary_reason) }}</span></td><td><button type="button" class="table-action" :aria-label="`查看 ${item.file_name} 不能处理的原因`" @click="openDetail(item)">查看原因</button></td></tr></tbody></table>
+        <p v-if="!diagnosticListing.items.length" class="inline-note">当前筛选下没有建议项。</p>
         <div class="diagnostic-pagination"><span>第 {{ diagnosticPage }} / {{ diagnosticPageCount }} 页 · 共 {{ formatNumber(diagnosticListing.total) }} 项</span><div><button type="button" class="text-button" :disabled="diagnosticOffset === 0 || diagnosticLoading" @click="changeDiagnosticPage(-1)">上一页</button><button type="button" class="text-button" :disabled="diagnosticOffset + diagnosticPageSize >= diagnosticListing.total || diagnosticLoading" @click="changeDiagnosticPage(1)">下一页</button></div></div>
       </div></template></details>
     </details>
-    <section class="panel recommendation-filters"><div class="panel-heading"><div><p class="eyebrow">FILTER</p><h2>筛选识别结果</h2></div></div><div class="scan-controls"><label>类型<select v-model="category"><option value="">全部类型</option><option v-for="item in categories" :key="item" :value="item">{{ categoryLabel(item) }}</option></select></label><label>识别置信度<select v-model="confidence"><option value="">全部置信度</option><option value="high">高</option><option value="medium">中</option><option value="low">低</option></select></label></div></section>
-    <section v-for="section in sections" :key="section.risk" class="panel recommendation-section"><div class="panel-heading"><div><p class="eyebrow">{{ section.risk.toUpperCase() }}</p><h2>{{ sectionTitles[section.risk] }}</h2></div><span class="subtle-label">{{ section.total }} 项<span v-if="section.total > section.items.length"> · 显示前 {{ section.items.length }} 项</span></span></div>
+    <details class="panel advanced-details recommendation-filters"><summary class="advanced-summary"><span><small>高级选项</small><strong>筛选建议项</strong></span><span>展开查看</span></summary><section class="nested-panel"><div class="scan-controls"><label>类型<select v-model="category"><option value="">全部类型</option><option v-for="item in categories" :key="item" :value="item">{{ categoryLabel(item) }}</option></select></label><label>判断可靠度<select v-model="confidence"><option value="">全部</option><option value="high">高</option><option value="medium">中</option><option value="low">低</option></select></label></div></section></details>
+    <section v-for="section in sections" :key="section.risk" class="panel recommendation-section"><div class="panel-heading"><div><p class="eyebrow">处理风险</p><h2>{{ sectionTitles[section.risk] }}</h2></div><span class="subtle-label">{{ section.total }} 项<span v-if="section.total > section.items.length"> · 显示前 {{ section.items.length }} 项</span></span></div>
       <p v-if="!section.items.length" class="inline-note">此范围暂无匹配项目。</p>
-    <div v-else class="recommendation-list"><article v-for="item in section.items" :key="item.candidate_id" class="recommendation-item"><div class="recommendation-item-head"><div><strong>{{ item.title }}</strong><p class="path-cell" :title="item.display_path">{{ item.display_path }}</p></div><strong class="size-cell">{{ formatBytes(item.logical_bytes) }}</strong></div><p>{{ item.summary }}</p><div class="recommendation-tags"><span>{{ categoryLabel(item.category) }}</span><span>{{ riskLabel(item.risk_level) }}</span><span>置信度 {{ confidenceLabel(item.confidence) }}</span><span>{{ item.object_type === 'group' ? '分组' : item.object_type === 'directory' ? '目录' : '文件' }}</span></div><p class="execution-status">{{ executionStatus(item) }}</p><button type="button" class="text-button" @click="openDetail(item)">为什么被识别 →</button></article></div>
+    <div v-else class="recommendation-list"><article v-for="item in section.items" :key="item.candidate_id" class="recommendation-item"><div class="recommendation-item-head"><div><strong>{{ item.title }}</strong><p class="path-cell" :title="item.display_path">位置：{{ item.display_path }}</p></div><strong class="size-cell">{{ formatBytes(item.logical_bytes) }}</strong></div><p>{{ item.summary }}</p><div class="recommendation-tags"><span>{{ categoryLabel(item.category) }}</span><span>{{ riskLabel(item.risk_level) }}</span><span>{{ item.object_type === 'group' ? '文件分组' : item.object_type === 'directory' ? '文件夹' : '文件' }}</span></div><p class="execution-status">当前状态：{{ executionStatus(item) }}</p><button type="button" class="text-button" @click="openDetail(item)">{{ item.execution_hint === 'prepare_available' ? '查看并准备处理' : '为什么不能处理？' }}</button></article></div>
     </section>
   </template>
   <p v-if="detailLoading" class="inline-note" role="status">正在读取识别依据…</p>
@@ -351,18 +351,18 @@ watch(scopeKey, () => {
   <p v-if="candidateResult" class="coverage-note" role="status"><strong>已移入 Windows 回收站。</strong> 文件原始大小记录已保留；磁盘可用空间未必立即增加。</p>
   <BaseDialog :open="!!selected" title-id="recommendation-title" panel-class="recommendation-detail-dialog" @close="selected = null">
     <template v-if="selected"><div class="recommendation-detail">
-      <p class="eyebrow">EVIDENCE / SAVED SNAPSHOT</p><h2 id="recommendation-title">{{ selected.title }}</h2><p>{{ selected.summary }}</p>
-      <div class="recommendation-tags"><span>{{ riskLabel(selected.risk_level) }}</span><span>置信度 {{ confidenceLabel(selected.confidence) }}</span><span>{{ categoryLabel(selected.category) }}</span></div>
+      <p class="eyebrow">建议项详情</p><h2 id="recommendation-title">{{ selected.title }}</h2><p>{{ selected.summary }}</p>
+      <div class="recommendation-tags"><span>{{ riskLabel(selected.risk_level) }}</span><span>{{ categoryLabel(selected.category) }}</span></div>
       <p class="path-cell" :title="selected.display_path">{{ selected.display_path }}</p><strong>{{ formatBytes(selected.logical_bytes) }}</strong>
-      <h3>识别依据</h3><ul><li v-for="evidence in selected.evidence" :key="evidence">{{ evidence }}</li></ul><p>{{ selected.explanation }}</p>
+      <h3>为什么值得关注？</h3><ul><li v-for="evidence in selected.evidence" :key="evidence">{{ evidence }}</li></ul><p>{{ selected.explanation }}</p>
       <p><strong>建议：</strong>{{ actionLabel(selected.recommended_action) }} <span v-if="selected.execution_hint !== 'prepare_available'">当前策略不允许处理该项目。</span></p>
-      <details class="technical-details"><summary>查看候选技术详情</summary><p class="fine-print">候选识别规则：{{ selected.source_rule_id }} · {{ selected.rule_version }} · {{ selected.reason_code }}</p></details>
+      <details class="technical-details"><summary>技术详情</summary><p class="fine-print">建议项 ID：{{ selected.candidate_id }} · 识别规则：{{ selected.source_rule_id }} · {{ selected.rule_version }} · {{ selected.reason_code }} · 判断可靠度：{{ confidenceLabel(selected.confidence) }}</p></details>
       <div v-if="members.length"><h3>分组成员（{{ members.length }}）</h3><div class="member-list"><div v-for="member in members" :key="member.candidate_id"><span class="path-cell" :title="member.display_path">{{ member.display_path }}</span><strong class="size-cell">{{ formatBytes(member.logical_bytes) }}</strong></div></div></div>
       <template v-if="diagnosticDetail">
         <h3>{{ diagnosticDetail.candidate.decision.eligibility === 'eligible_for_recycle' ? '为什么可以进入准备处理？' : '为什么不能处理？' }}</h3>
         <div class="diagnostic-decision"><strong>{{ eligibilityDecisionLabel(diagnosticDetail.candidate.decision.eligibility) }}</strong><span>{{ policyReasonTitle(diagnosticDetail.candidate.decision.primary_reason) }}</span></div>
         <p>{{ policyReasonExplanation(diagnosticDetail.candidate.decision.primary_reason) }}</p>
-        <details class="technical-details"><summary>查看资格技术详情</summary><p class="fine-print">执行策略：{{ diagnosticDetail.candidate.decision.policy_rule_id }} · {{ diagnosticDetail.candidate.decision.execution_policy_version }}</p>
+        <details class="technical-details"><summary>技术详情</summary><p class="fine-print">安全规则：{{ diagnosticDetail.candidate.decision.policy_rule_id }} · {{ diagnosticDetail.candidate.decision.execution_policy_version }}</p>
         <h3>全部资格原因</h3><ul><li v-for="reason in diagnosticDetail.candidate.decision.reason_codes" :key="reason"><strong>{{ policyReasonTitle(reason) }}</strong>：{{ policyReasonExplanation(reason) }} <span class="mono">{{ reason }}</span></li></ul>
         <h3>策略核对依据</h3><div class="detail-grid diagnostic-evidence">
           <div><span>范围</span><strong>{{ diagnosticDetail.candidate.decision.evidence.path_scope }}</strong></div>
@@ -376,7 +376,7 @@ watch(scopeKey, () => {
         </div>
         <p v-if="diagnosticDetail.candidate.candidate_evidence.length" class="fine-print">候选识别依据：{{ diagnosticDetail.candidate.candidate_evidence.join('；') }}</p>
         </details>
-        <p class="coverage-note">此诊断只使用保存的历史元数据，不是执行授权。即使符合条件，也必须在准备处理时重新核对当前文件。</p>
+        <p class="coverage-note">这里使用的是扫描时保存的信息。即使显示可以处理，DiskScope 也会在准备处理时重新核对当前文件。</p>
       </template>
       <p class="execution-status">{{ selected.execution_hint === 'prepare_available' ? '可准备处理 · 需重新核对当前文件' : executionStatus(selected) }}</p>
       <div class="confirm-actions"><button v-if="selected.execution_hint === 'prepare_available'" type="button" class="primary-button" :disabled="prepareLoading" @click="prepareSelected">{{ prepareLoading ? '正在检查…' : '准备处理' }}</button><button type="button" class="text-button" @click="copyPath(selected.display_path)">复制路径</button><button type="button" class="primary-button" data-dialog-initial @click="selected = null">关闭</button></div>
@@ -384,7 +384,7 @@ watch(scopeKey, () => {
   </BaseDialog>
   <BaseDialog :open="!!prepared" title-id="preflight-title" panel-class="recommendation-detail-dialog" @close="prepared = null">
     <template v-if="prepared"><div class="recommendation-detail">
-      <p class="eyebrow">CURRENT FILE / PREFLIGHT</p><h2 id="preflight-title">当前状态预检</h2>
+      <p class="eyebrow">处理前检查</p><h2 id="preflight-title">再次检查当前文件</h2>
       <h3>{{ fileName(prepared.preflight.current_path) }}</h3>
       <p class="path-cell" :title="prepared.preflight.current_path">{{ prepared.preflight.current_path }}</p>
       <p>扫描时：{{ formatBytes(prepared.preflight.snapshot_size) }} · {{ formatLocalTime(prepared.preflight.snapshot_mtime) }}</p>
@@ -404,7 +404,7 @@ watch(scopeKey, () => {
       <div class="confirm-actions"><button v-if="prepared.real_execution_enabled && prepared.execution_token" type="button" class="primary-button" :disabled="!candidateConfirmed || candidateExecutionLoading" @click="recycleSelected">{{ candidateExecutionLoading ? '正在移入…' : '移入 Windows 回收站' }}</button><button type="button" class="text-button" data-dialog-initial @click="prepared = null">取消</button></div>
     </div></template>
   </BaseDialog>
-  <details class="panel advanced-details"><summary class="advanced-summary"><span><small>高级区域</small><strong>开发与测试工具</strong></span><span>默认关闭</span></summary><section class="nested-panel controlled-probe-panel">
+  <details v-if="store.developerMode" class="panel advanced-details"><summary class="advanced-summary"><span><small>开发者工具</small><strong>安全执行测试</strong></span><span>默认关闭</span></summary><section class="nested-panel controlled-probe-panel">
     <div class="panel-heading"><div><p class="eyebrow">CONTROLLED PROBE TEST</p><h2>安全执行测试</h2></div><span class="read-only-chip">仅限 DiskScope 自建文件</span></div>
     <p class="inline-note">仅测试 DiskScope 本次运行创建并登记的 64 KB 临时文件。真实候选使用独立的 USER_TEMP_STALE_FILE_V1 门禁与人工确认。</p>
     <div v-if="controlledProbe" class="probe-summary">
@@ -434,7 +434,7 @@ watch(scopeKey, () => {
       <div class="confirm-actions"><button v-if="probePlan.real_execution_enabled && probePlan.execution_token" type="button" class="primary-button" :disabled="probeLoading" @click="recycleProbeTest">{{ probeLoading ? '正在移入…' : '移入 Windows 回收站' }}</button><button type="button" class="text-button" data-dialog-initial @click="probeDialogOpen = false">返回</button></div>
     </div></template>
   </BaseDialog>
-  <details class="panel advanced-details"><summary class="advanced-summary"><span><small>高级区域</small><strong>操作记录</strong></span><span>{{ executionHistory.length }} 条</span></summary><section class="nested-panel"><div class="panel-heading"><div><p class="eyebrow">AUDIT</p><h2>操作记录</h2></div><button type="button" class="text-button" @click="loadExecutionHistory">刷新</button></div>
+  <details v-if="store.developerMode" class="panel advanced-details"><summary class="advanced-summary"><span><small>开发者工具</small><strong>原始操作记录</strong></span><span>{{ executionHistory.length }} 条</span></summary><section class="nested-panel"><div class="panel-heading"><div><p class="eyebrow">审计记录</p><h2>操作记录</h2></div><button type="button" class="text-button" @click="loadExecutionHistory">刷新</button></div>
     <p class="inline-note">记录预检与执行门禁结果；只有状态明确为“已移入回收站”才表示原路径已消失。这里不计算磁盘可用空间变化。</p>
     <p v-if="!executionHistory.length" class="inline-note">暂无操作记录。</p>
     <div v-else class="recommendation-list"><div v-for="record in executionHistory" :key="record.id" class="recommendation-item"><div class="recommendation-item-head"><div><strong>{{ formatLocalTime(record.execute_time ?? record.prepare_time) }} · {{ auditStatus(record) }}</strong><p>{{ fileName(record.original_path) }}</p><p class="path-cell" :title="record.original_path">{{ record.original_path }}</p></div><strong class="size-cell">{{ formatBytes(record.execute_size ?? record.preflight_size ?? record.snapshot_size) }}</strong></div><div class="recommendation-tags"><span>动作：移入回收站</span><span v-if="record.candidate_category">{{ categoryLabel(record.candidate_category) }}</span></div><p v-if="record.failure_code">原因：{{ executionReasonLabel(record.failure_code) }}</p><p>结果：{{ record.final_result === 'recycled' ? '已移入回收站' : '未处理' }}</p><details class="technical-details"><summary>技术详情</summary><p>策略：{{ record.policy_rule_id }} · target_mutation={{ record.target_mutation }}</p></details></div></div>

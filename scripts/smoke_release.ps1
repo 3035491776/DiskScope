@@ -1,5 +1,5 @@
 param(
-    [string]$ReleaseDirectory = "release\DiskScope-v0.1.0-windows-x64",
+    [string]$ReleaseDirectory = "release\DiskScope-v0.1.1-test-windows-x64",
     [switch]$KeepTestDirectory
 )
 
@@ -13,7 +13,7 @@ else {
     Join-Path $projectRoot $ReleaseDirectory
 }
 $sourceRelease = (Resolve-Path $releaseCandidate).Path
-$testRoot = Join-Path ([System.IO.Path]::GetTempPath()) ("DiskScope-M9-Smoke-" + [guid]::NewGuid().ToString("N"))
+$testRoot = Join-Path ([System.IO.Path]::GetTempPath()) ("DiskScope-v0.1.1-Smoke-" + [guid]::NewGuid().ToString("N"))
 $testRelease = Join-Path $testRoot "DiskScope"
 $baseUri = "http://127.0.0.1:8765"
 $originHeaders = @{ Origin = $baseUri }
@@ -47,7 +47,7 @@ try {
     $env:DISKSCOPE_BOOTSTRAP_TOKEN = $token
     $startedAt = [Diagnostics.Stopwatch]::StartNew()
     $server = Start-Process -FilePath $exe -ArgumentList "--serve" -WorkingDirectory $testRelease `
-        -RedirectStandardOutput $stdout -RedirectStandardError $stderr -PassThru
+        -RedirectStandardOutput $stdout -RedirectStandardError $stderr -WindowStyle Hidden -PassThru
 
     $health = $null
     $deadline = [DateTime]::UtcNow.AddSeconds(30)
@@ -65,7 +65,7 @@ try {
     }
     if ($null -eq $health) { throw "Packaged server did not become healthy within 30 seconds." }
     $startedAt.Stop()
-    if ($health.status -ne "ok" -or $health.version -ne "0.1.0" -or $health.developer_mode) {
+    if ($health.status -ne "ok" -or $health.version -ne "0.1.1" -or $health.developer_mode) {
         throw "Packaged health metadata is invalid."
     }
 
@@ -129,7 +129,7 @@ try {
     $conflictOut = Join-Path $testRoot "port-conflict.stdout.log"
     $conflictErr = Join-Path $testRoot "port-conflict.stderr.log"
     $conflict = Start-Process -FilePath $exe -WorkingDirectory $testRelease `
-        -RedirectStandardOutput $conflictOut -RedirectStandardError $conflictErr -PassThru -Wait
+        -RedirectStandardOutput $conflictOut -RedirectStandardError $conflictErr -WindowStyle Hidden -PassThru -Wait
     if ($conflict.ExitCode -eq 0) { throw "Second instance did not fail safely on the occupied port." }
     $conflictText = ((Get-Content $conflictOut -Raw -ErrorAction SilentlyContinue) + `
         (Get-Content $conflictErr -Raw -ErrorAction SilentlyContinue))
@@ -179,7 +179,7 @@ finally {
     if (-not $KeepTestDirectory -and (Test-Path -LiteralPath $testRoot)) {
         $resolvedTemp = (Resolve-Path ([System.IO.Path]::GetTempPath())).Path.TrimEnd('\')
         $resolvedTest = (Resolve-Path $testRoot).Path
-        if (-not $resolvedTest.StartsWith($resolvedTemp + '\DiskScope-M9-Smoke-', [StringComparison]::OrdinalIgnoreCase)) {
+        if (-not $resolvedTest.StartsWith($resolvedTemp + '\DiskScope-v0.1.1-Smoke-', [StringComparison]::OrdinalIgnoreCase)) {
             throw "Refusing to remove an unexpected smoke-test directory: $resolvedTest"
         }
         Remove-Item -LiteralPath $resolvedTest -Recurse -Force

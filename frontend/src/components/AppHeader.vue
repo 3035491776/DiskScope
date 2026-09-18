@@ -13,7 +13,7 @@ const scope = computed(() => {
 
 <template>
   <header class="app-header">
-    <div class="header-scope"><span class="header-label">当前结果来源</span><strong>{{ scope }}</strong><span class="header-separator">/</span><span>仅扫描 DiskScope 明确支持的固定范围</span></div>
+    <div class="header-scope"><span class="header-label">正在查看</span><strong>{{ scope }}</strong><span class="header-separator">/</span><span>DiskScope 只会扫描你主动选择的位置</span></div>
     <div class="header-state" role="status" aria-live="polite">
       <span class="state-dot" :class="store.serviceState"></span>
       <span v-if="store.serviceState === 'online'">服务运行正常</span>
