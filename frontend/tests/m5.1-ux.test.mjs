@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import { readFileSync } from 'node:fs'
 import { getLatestResult, getResultDirectories, getResultTop } from '../src/services/api.ts'
-import { coverageHeading, coverageIssueCount, coverageReasons } from '../src/utils/coverage.ts'
+import { coverageHeading, coverageIssueCount, coverageReasons, metadataWarningCount, skippedLocationCount } from '../src/utils/coverage.ts'
 
 test('saved result API keeps source and scope explicit for drilldown and Top-K', async () => {
   const previous = globalThis.fetch
@@ -30,10 +30,19 @@ test('coverage is human-readable while technical codes remain available', () => 
   assert.equal(coverageReasons.FILE_NOT_FOUND.label, '文件在扫描过程中发生了变化')
   assert.equal(coverageReasons.PATH_TOO_LONG.label, '有些路径过长')
   assert.equal(coverageReasons.IO_ERROR.label, '无法读取文件基本信息')
+  assert.equal(coverageReasons.INVALID_FILE_METADATA.label, '部分文件的信息不完整')
   const completed = { state: 'completed', errors_count: 407, skipped_count: 407 }
   assert.equal(coverageIssueCount(completed), 407)
   assert.equal(coverageHeading(completed), '扫描完成，但部分位置未能扫描')
   assert.equal(coverageHeading({ ...completed, state: 'failed' }), '扫描失败')
+  const metadataWarning = {
+    state: 'completed', errors_count: 1, skipped_count: 0, metadata_warning_count: 1,
+    errors: { INVALID_FILE_METADATA: { count: 1, samples: ['odd-time.bin'] } },
+  }
+  assert.equal(metadataWarningCount(metadataWarning), 1)
+  assert.equal(skippedLocationCount(metadataWarning), 0)
+  assert.equal(coverageIssueCount(metadataWarning), 1)
+  assert.equal(coverageHeading(metadataWarning), '扫描完成，但部分文件的信息不完整')
   const status = readFileSync(new URL('../src/views/ScanStatus.vue', import.meta.url), 'utf8')
   assert.match(status, /技术详情/)
   assert.match(status, /\{\{ code \}\}/)

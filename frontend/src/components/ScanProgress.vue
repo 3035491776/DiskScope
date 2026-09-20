@@ -18,7 +18,7 @@ defineProps<{ scan: ScanStatus }>()
       <div><small>已运行</small><strong>{{ formatSeconds(scan.elapsed_ms) }}</strong></div>
       <div><small>扫描速度</small><strong>{{ scan.metrics ? formatNumber(scan.metrics.files_per_second) + ' 文件/秒' : '—' }}</strong></div>
       <div><small>内存占用</small><strong>{{ formatBytes(scan.metrics?.rss_current_bytes) }}</strong></div>
-      <div><small>未能扫描的位置</small><strong>{{ formatNumber(coverageIssueCount(scan)) }}</strong></div>
+      <div><small>扫描提示</small><strong>{{ formatNumber(coverageIssueCount(scan)) }}</strong></div>
     </div>
   </div>
 </template>

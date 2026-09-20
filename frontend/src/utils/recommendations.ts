@@ -29,7 +29,7 @@ export function actionLabel(value: string): string {
 }
 
 export function coverageMessage(coverage: string | undefined): string {
-  return coverage === 'limited' ? '本次扫描有部分位置未能扫描，因此建议可能不完整。' : ''
+  return coverage === 'limited' ? '本次扫描有部分内容未能完整读取，因此建议可能不完整。' : ''
 }
 
 export const topKMessage = '这些建议来自已保存的大文件和文件夹信息，不代表所有文件都可处理。'

@@ -61,6 +61,7 @@ export interface ScanStatus {
   logical_bytes: number
   skipped_count: number
   errors_count: number
+  metadata_warning_count: number
   coverage: 'complete' | 'limited'
   coverage_summary: {
     access_denied_count: number
@@ -68,6 +69,7 @@ export interface ScanStatus {
     file_not_found_count: number
     path_too_long_count: number
     other_io_error_count: number
+    invalid_file_metadata_count: number
   }
   errors: Record<string, { count: number; samples: string[] }>
   exclusions: Record<string, { count: number; samples: string[] }>
@@ -295,6 +297,7 @@ export interface ResolvedResult {
     duration_seconds: number
     error_count: number
     skipped_count: number
+    metadata_warning_count: number | null
     file_persistence_mode: 'top_k' | 'bounded_scope'
     file_persistence_limit: number
     persisted_file_count: number

@@ -31,6 +31,7 @@ class ScanResult:
     logical_bytes: int = 0
     skipped_count: int = 0
     errors_count: int = 0
+    metadata_warning_count: int = 0
     errors: dict[str, dict[str, object]] = field(default_factory=dict)
     exclusions: dict[str, dict[str, object]] = field(default_factory=dict)
     limited_directories: set[str] = field(default_factory=set)

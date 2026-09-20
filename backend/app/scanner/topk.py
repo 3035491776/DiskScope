@@ -5,6 +5,14 @@ from datetime import datetime, timezone
 from app.scanner.models import FileMetadata
 
 
+def safe_mtime_iso(mtime_epoch: float) -> str | None:
+    """Convert filesystem time without letting invalid metadata abort a scan."""
+    try:
+        return datetime.fromtimestamp(mtime_epoch, timezone.utc).isoformat()
+    except (OSError, OverflowError, ValueError):
+        return None
+
+
 @dataclass(slots=True)
 class _HeapItem:
     file: FileMetadata
@@ -40,13 +48,15 @@ class TopKFiles:
     def add_observation(
         self, name: str, relative_path: str, parent: str, size_bytes: int,
         mtime_epoch: float, attributes: int | None,
-    ) -> None:
+    ) -> bool:
         if not self.accepts(size_bytes, relative_path):
-            return
+            return True
+        mtime = safe_mtime_iso(mtime_epoch)
         self.add(FileMetadata(
             name, relative_path, parent, size_bytes,
-            datetime.fromtimestamp(mtime_epoch, timezone.utc).isoformat(), attributes,
+            mtime or "", attributes,
         ))
+        return mtime is not None
 
     def sorted_files(self) -> list[FileMetadata]:
         return [
@@ -80,19 +90,23 @@ class BoundedHybridFiles:
         self._size = TopKFiles(limit)
         self._oldest: list[_OldestItem] = []
 
-    def add(self, file: FileMetadata) -> None:
+    def add(self, file: FileMetadata) -> bool:
         self._size.add(file)
-        timestamp = datetime.fromisoformat(file.mtime.replace("Z", "+00:00")).timestamp()
+        try:
+            timestamp = datetime.fromisoformat(file.mtime.replace("Z", "+00:00")).timestamp()
+        except (OSError, OverflowError, ValueError):
+            return False
         item = _OldestItem(timestamp, file)
         if len(self._oldest) < self.limit:
             heapq.heappush(self._oldest, item)
         elif self._oldest[0] < item:
             heapq.heapreplace(self._oldest, item)
+        return True
 
     def add_observation(
         self, name: str, relative_path: str, parent: str, size_bytes: int,
         mtime_epoch: float, attributes: int | None,
-    ) -> None:
+    ) -> bool:
         size_accepts = self._size.accepts(size_bytes, relative_path)
         oldest_accepts = len(self._oldest) < self.limit
         if not oldest_accepts:
@@ -101,26 +115,30 @@ class BoundedHybridFiles:
                               (mtime_epoch == worst.mtime_epoch and
                                relative_path < worst.file.relative_path))
         if not size_accepts and not oldest_accepts:
-            return
+            return True
+        mtime = safe_mtime_iso(mtime_epoch)
         file = FileMetadata(
             name, relative_path, parent, size_bytes,
-            datetime.fromtimestamp(mtime_epoch, timezone.utc).isoformat(), attributes,
+            mtime or "", attributes,
         )
         if size_accepts:
             self._size.add(file)
-        if oldest_accepts:
+        # Missing/invalid times remain eligible for size selection but never
+        # masquerade as an old file in the age-based half of Temp persistence.
+        if oldest_accepts and mtime is not None:
             item = _OldestItem(mtime_epoch, file)
             if len(self._oldest) < self.limit:
                 heapq.heappush(self._oldest, item)
             else:
                 heapq.heapreplace(self._oldest, item)
+        return mtime is not None
 
     def selected_files(self, observed_count: int) -> list[FileMetadata]:
         by_size = self._size.sorted_files()
         if observed_count <= self.limit:
             return by_size
         by_age = [item.file for item in sorted(
-            self._oldest, key=lambda item: (item.file.mtime, item.file.relative_path)
+            self._oldest, key=lambda item: (item.mtime_epoch, item.file.relative_path)
         )]
         selected: dict[str, FileMetadata] = {}
         for file in by_size[:self.size_quota]:

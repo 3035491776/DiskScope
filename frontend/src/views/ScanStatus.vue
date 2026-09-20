@@ -6,7 +6,7 @@ import ScanProgress from '../components/ScanProgress.vue'
 import { useScanStore } from '../stores/scan'
 import { formatBytes, formatLocalTime, formatNumber, formatSeconds } from '../utils/format'
 import { completionLabel, scanHeading } from '../utils/presentation'
-import { coverageHeading, coverageIssueCount, coverageReasons, scanErrorMessage } from '../utils/coverage'
+import { coverageHeading, coverageIssueCount, coverageReasons, metadataWarningCount, scanErrorMessage, skippedLocationCount } from '../utils/coverage'
 
 const store = useScanStore()
 </script>
@@ -20,7 +20,8 @@ const store = useScanStore()
       <div class="detail-grid"><div><span>创建时间</span><strong>{{ formatLocalTime(store.scan.created_at) }}</strong></div><div><span>开始时间</span><strong>{{ formatLocalTime(store.scan.started_at) }}</strong></div><div><span>结束时间</span><strong>{{ formatLocalTime(store.scan.finished_at) }}</strong></div></div>
       <p v-if="store.scan.state === 'failed'" class="inline-error" role="alert">{{ scanErrorMessage(store.scan.error_code) }}</p>
       <p v-else-if="store.scan.state === 'cancelled'" class="inline-note">任务已取消；以下统计可能不完整。</p>
-      <p v-else-if="store.scan.state === 'completed' && coverageIssueCount(store.scan)" class="coverage-note">{{ coverageHeading(store.scan) }}。DiskScope 已安全跳过这些位置，其余结果仍可查看。</p>
+      <p v-else-if="store.scan.state === 'completed' && skippedLocationCount(store.scan)" class="coverage-note">{{ coverageHeading(store.scan) }}。DiskScope 已安全跳过无法读取的位置，其余结果仍可查看。</p>
+      <p v-if="store.scan.state === 'completed' && metadataWarningCount(store.scan)" class="coverage-note">部分文件的信息不完整，DiskScope 已计入其大小并继续扫描其他内容。</p>
       <p v-if="store.scan.state === 'completed' && store.scan.snapshot_status === 'pending'" class="inline-note">正在保存这次扫描记录…</p>
       <p v-if="store.scan.state === 'completed' && store.scan.snapshot_status === 'failed'" class="inline-error" role="alert">扫描已完成，但扫描记录保存失败。当前结果仍可查看。</p>
       <p v-if="store.scan.state === 'completed' && store.scan.scope_key === 'current_user_temp'" class="inline-note">这次发现了 {{ formatNumber(store.scan.observed_file_count) }} 个文件。{{ store.scan.file_metadata_coverage === 'complete' ? '已保存全部文件的详细信息。' : `为了控制资源占用，保存了其中 ${formatNumber(store.scan.persisted_file_count)} 个文件的详细信息。` }}</p>
@@ -33,8 +34,10 @@ const store = useScanStore()
       <details class="coverage-technical"><summary>技术详情</summary><p>任务编号 <span class="mono">{{ store.scan.scan_id }}</span></p><p v-if="store.scan.error_code">错误代码 <span class="mono">{{ store.scan.error_code }}</span></p><p v-if="store.scan.error_message">原始错误信息 <span class="mono">{{ store.scan.error_message }}</span></p><p v-if="store.scan.snapshot_error_code">扫描记录错误代码 <span class="mono">{{ store.scan.snapshot_error_code }}</span></p></details>
     </section>
     <div class="two-column">
-      <section class="panel"><div class="panel-heading"><div><p class="eyebrow">结果完整度</p><h2>未能扫描的位置</h2></div><span class="subtle-label">{{ coverageHeading(store.scan) }}</span></div>
-        <p class="inline-note">{{ formatNumber(coverageIssueCount(store.scan)) }} 个位置未能扫描。其余扫描结果仍可浏览，这通常不代表程序故障。</p>
+      <section class="panel"><div class="panel-heading"><div><p class="eyebrow">结果完整度</p><h2>扫描提示</h2></div><span class="subtle-label">{{ coverageHeading(store.scan) }}</span></div>
+        <p v-if="skippedLocationCount(store.scan)" class="inline-note">{{ formatNumber(skippedLocationCount(store.scan)) }} 个位置未能扫描。其余扫描结果仍可浏览，这通常不代表程序故障。</p>
+        <p v-if="metadataWarningCount(store.scan)" class="inline-note">{{ formatNumber(metadataWarningCount(store.scan)) }} 个文件的时间信息不完整；文件数量和大小已经正常计入。</p>
+        <p v-if="!coverageIssueCount(store.scan)" class="inline-note">未记录覆盖问题或文件信息警告。</p>
         <div v-if="Object.keys(store.scan.errors).length" class="coverage-reasons"><div v-for="(item, code) in store.scan.errors" :key="code" class="coverage-reason"><div><strong>{{ coverageReasons[code]?.label || code }}</strong><span>{{ formatNumber(item.count) }} 项</span></div><p>{{ coverageReasons[code]?.explanation || '可在技术详情中查看原始错误代码。' }}</p><details><summary>技术详情</summary><code>{{ code }}</code><ul v-if="item.samples.length"><li v-for="sample in item.samples" :key="sample" :title="sample">{{ sample }}</li></ul></details></div></div>
         <p v-else class="inline-note">{{ store.scan.errors_count === 0 ? '未记录覆盖问题。' : '正在收集覆盖摘要…' }}</p>
         <details class="coverage-technical"><summary>查看原始统计</summary><p>errors_count {{ store.scan.errors_count }} · skipped_count {{ store.scan.skipped_count }}</p></details>

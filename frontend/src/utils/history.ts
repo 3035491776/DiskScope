@@ -26,5 +26,5 @@ export function historyErrorMessage(error: unknown): string {
 }
 
 export function coverageWarning(limited: boolean): string {
-  return limited ? '其中一次扫描有部分位置未能扫描，变化结果可能不完整。' : ''
+  return limited ? '其中一次扫描有部分内容未能完整读取，变化结果可能不完整。' : ''
 }

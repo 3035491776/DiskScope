@@ -30,7 +30,9 @@ export function completionLabel(scan: ScanStatus): string {
   if (scan.state === 'failed') return '扫描失败'
   if (scan.state === 'cancelled') return '已取消'
   if (scan.state === 'completed' && (scan.errors_count > 0 || scan.skipped_count > 0)) {
-    return '扫描完成，但部分位置未能扫描'
+    if (scan.skipped_count > 0) return '扫描完成，但部分位置未能扫描'
+    if (scan.metadata_warning_count > 0) return '扫描完成，但部分文件的信息不完整'
+    return '扫描完成，但部分内容的信息不完整'
   }
   return stateLabel(scan.state)
 }

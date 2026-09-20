@@ -58,6 +58,7 @@ class ScanTask:
     logical_bytes: int = 0
     skipped_count: int = 0
     errors_count: int = 0
+    metadata_warning_count: int = 0
     cancel_requested: bool = False
     error_code: str | None = None
     error_message: str | None = None
@@ -91,6 +92,7 @@ class ScanTask:
             "logical_bytes": self.logical_bytes,
             "skipped_count": self.skipped_count,
             "errors_count": self.errors_count,
+            "metadata_warning_count": self.metadata_warning_count,
             "coverage": "limited" if self.skipped_count or self.errors_count else "complete",
             "coverage_summary": {
                 "access_denied_count": self.result.errors.get("ACCESS_DENIED", {}).get("count", 0) if self.result else 0,
@@ -98,6 +100,7 @@ class ScanTask:
                 "file_not_found_count": self.result.errors.get("FILE_NOT_FOUND", {}).get("count", 0) if self.result else 0,
                 "path_too_long_count": self.result.errors.get("PATH_TOO_LONG", {}).get("count", 0) if self.result else 0,
                 "other_io_error_count": self.result.errors.get("IO_ERROR", {}).get("count", 0) if self.result else 0,
+                "invalid_file_metadata_count": self.result.errors.get("INVALID_FILE_METADATA", {}).get("count", 0) if self.result else 0,
             },
             "file_persistence_mode": self.result.file_persistence_mode if self.result else None,
             "file_persistence_limit": self.result.file_persistence_limit if self.result else None,
@@ -176,6 +179,7 @@ class ScanTaskManager:
                 task.logical_bytes = result.logical_bytes
                 task.skipped_count = result.skipped_count
                 task.errors_count = result.errors_count
+                task.metadata_warning_count = result.metadata_warning_count
 
         try:
             if task.scope_key == "current_user_temp":
@@ -216,7 +220,8 @@ class ScanTaskManager:
                             exc.code if isinstance(exc, SnapshotStoreError)
                             else "SNAPSHOT_DATABASE_UNAVAILABLE"
                         )
-        except RootUnavailable:
+        except RootUnavailable as exc:
+            self._log_scan_failure(task, exc)
             with self._lock:
                 task.finished_at = utc_now()
                 task.finished_clock = time.monotonic()
@@ -229,7 +234,7 @@ class ScanTaskManager:
                 ))
                 task.monitor = None
         except OSError as exc:
-            logging.error("Approved scan failed with %s", type(exc).__name__)
+            self._log_scan_failure(task, exc)
             with self._lock:
                 task.finished_at = utc_now()
                 task.finished_clock = time.monotonic()
@@ -242,18 +247,25 @@ class ScanTaskManager:
                 ))
                 task.monitor = None
         except Exception as exc:
-            logging.error("Approved scan failed with %s", type(exc).__name__)
+            self._log_scan_failure(task, exc)
             with self._lock:
                 task.finished_at = utc_now()
                 task.finished_clock = time.monotonic()
                 task.state = "failed"
                 task.phase = "failed"
-                task.error_code = "IO_ERROR"
+                task.error_code = "INTERNAL_ERROR"
                 task.error_message = "The approved scan could not finish."
                 task.metrics = monitor.finish(task.files_seen, round(
                     (task.finished_clock - task.started_clock) * 1000
                 ))
                 task.monitor = None
+
+    @staticmethod
+    def _log_scan_failure(task: ScanTask, exc: BaseException) -> None:
+        logging.exception(
+            "Approved scan failed: scan_id=%s scope=%s root=%s exception=%s message=%s",
+            task.scan_id, task.scope_key, task.root, type(exc).__name__, str(exc),
+        )
 
     def status(self, scan_id: str) -> dict[str, object]:
         with self._lock:

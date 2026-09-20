@@ -17,6 +17,13 @@ const cVolume = computed(() => store.volumes.find(volume => volume.drive === 'C:
 function usedPercent(total: number, used: number): number | null {
   return total > 0 ? Math.min(100, Math.max(0, used / total * 100)) : null
 }
+function resultCoverageLabel(): string {
+  if (store.result?.coverage !== 'limited') return '扫描完成'
+  if (summary.value?.skipped_count === 0 && (summary.value.metadata_warning_count || summary.value.error_count)) {
+    return '扫描完成，但部分文件的信息不完整'
+  }
+  return '扫描完成，但部分内容未能完整读取'
+}
 </script>
 
 <template>
@@ -30,7 +37,7 @@ function usedPercent(total: number, used: number): number | null {
   <ResultSourceBanner />
 
   <section class="summary-section" aria-label="当前扫描范围统计">
-    <div class="section-heading"><div><p class="eyebrow">上次扫描结果</p><h2>{{ targetName(store.resultTarget) }}</h2></div><span v-if="store.result?.source_type !== 'none' && store.result" class="status-pill completed">{{ store.result.coverage === 'limited' ? '扫描完成，但部分位置未能扫描' : '扫描完成' }}</span></div>
+    <div class="section-heading"><div><p class="eyebrow">上次扫描结果</p><h2>{{ targetName(store.resultTarget) }}</h2></div><span v-if="store.result?.source_type !== 'none' && store.result" class="status-pill completed">{{ resultCoverageLabel() }}</span></div>
     <div class="metric-grid">
       <div class="metric-card"><span>{{ store.resultTarget === 'c_drive' ? '扫描发现的文件大小' : '已发现的文件大小' }}</span><strong>{{ formatBytes(summary?.total_bytes) }}</strong><small>只计算能读取到的文件</small></div>
       <div class="metric-card"><span>文件</span><strong>{{ formatNumber(summary?.file_count) }}</strong><small>已发现项目</small></div>
@@ -41,7 +48,7 @@ function usedPercent(total: number, used: number): number | null {
     <p v-if="store.scan && isActive(store.scan)" class="inline-note">当前运行任务：{{ targetName(store.scan.scope_key === 'system_drive_c' ? 'c_drive' : store.scan.scope_key === 'current_user_temp' ? 'user_temp' : store.scan.scope_key === 'project_workspace' ? 'project' : 'fixture') }}</p>
     <ScanProgress v-if="store.scan && isActive(store.scan)" :scan="store.scan" />
     <div v-if="summary" class="summary-callout">
-      <span>{{ store.result?.source_type === 'snapshot' ? '已保存的扫描记录' : '最新结果' }} · {{ store.result?.coverage === 'limited' ? `${formatNumber(summary.skipped_count)} 个位置未能扫描` : '可访问位置已扫描' }}</span>
+      <span>{{ store.result?.source_type === 'snapshot' ? '已保存的扫描记录' : '最新结果' }} · {{ store.result?.coverage === 'limited' ? (summary.skipped_count ? `${formatNumber(summary.skipped_count)} 个位置未能扫描` : '部分文件的信息不完整') : '可访问位置已扫描' }}</span>
       <RouterLink to="/analysis">查看空间分析 →</RouterLink>
     </div>
     <div v-if="summary" class="next-actions" aria-label="扫描后的操作">

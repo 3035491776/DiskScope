@@ -51,12 +51,16 @@ def scan_fixture(
                 last_progress_items = items_seen
         elif isinstance(event, FileSeen):
             aggregator.add_file(event.parent, event.size_bytes)
-            top_files.add_observation(
+            metadata_complete = top_files.add_observation(
                 event.name, event.relative_path, event.parent, event.size_bytes,
                 event.mtime_epoch, event.attributes,
             )
             result.files_seen += 1
             result.logical_bytes += event.size_bytes
+            if not metadata_complete:
+                errors.record("INVALID_FILE_METADATA", event.relative_path)
+                result.metadata_warning_count += 1
+                result.errors_count = errors.total_count
             items_seen = result.files_seen + result.dirs_seen
             if on_progress and items_seen - last_progress_items >= 256:
                 on_progress(result)

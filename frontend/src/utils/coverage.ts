@@ -8,17 +8,37 @@ export const coverageReasons: Record<string, { label: string; explanation: strin
   IO_ERROR: { label: '无法读取文件基本信息', explanation: '部分位置的文件基本信息读取失败，可在技术详情中查看原始错误代码。' },
   CROSS_VOLUME_SKIPPED: { label: '跨卷位置未访问', explanation: '只读扫描不会越过已授权的磁盘范围。' },
   INVALID_PATH: { label: '路径不可用', explanation: '扫描过程中有路径不可访问。' },
+  INVALID_FILE_METADATA: { label: '部分文件的信息不完整', explanation: 'DiskScope 已计入文件数量和大小，跳过异常的时间信息并继续扫描。' },
   CANCELLED: { label: '扫描已取消', explanation: '取消后的不完整结果不会保存为扫描记录。' },
 }
 
-export function coverageIssueCount(scan: Pick<ScanStatus, 'errors_count' | 'skipped_count'>): number {
-  return Math.max(scan.errors_count, scan.skipped_count)
+type CoverageStatus = Pick<ScanStatus, 'state' | 'errors_count' | 'skipped_count'> &
+  Partial<Pick<ScanStatus, 'metadata_warning_count' | 'errors'>>
+
+export function metadataWarningCount(scan: CoverageStatus): number {
+  return scan.metadata_warning_count ?? scan.errors?.INVALID_FILE_METADATA?.count ?? 0
 }
 
-export function coverageHeading(scan: Pick<ScanStatus, 'state' | 'errors_count' | 'skipped_count'>): string {
+export function skippedLocationCount(scan: CoverageStatus): number {
+  return scan.skipped_count
+}
+
+export function coverageIssueCount(scan: CoverageStatus): number {
+  return skippedLocationCount(scan) + metadataWarningCount(scan)
+}
+
+export function coverageHeading(scan: CoverageStatus): string {
   if (scan.state === 'failed') return '扫描失败'
   if (scan.state === 'cancelled') return '扫描已取消'
-  if (scan.state === 'completed') return coverageIssueCount(scan) ? '扫描完成，但部分位置未能扫描' : '扫描完成'
+  if (scan.state === 'completed') {
+    const skipped = skippedLocationCount(scan)
+    const warnings = metadataWarningCount(scan)
+    if (skipped && warnings) return '扫描完成，部分位置未能扫描，部分文件信息不完整'
+    if (skipped) return '扫描完成，但部分位置未能扫描'
+    if (warnings) return '扫描完成，但部分文件的信息不完整'
+    if (scan.errors_count) return '扫描完成，但部分内容的信息不完整'
+    return '扫描完成'
+  }
   return '正在扫描，结果完整度会持续更新'
 }
 
@@ -29,6 +49,7 @@ export function scanErrorMessage(code: string | null | undefined): string {
     REPARSE_POINT_SKIPPED: '已跳过系统链接或重定向位置。',
     PATH_TOO_LONG: '有些文件路径过长，DiskScope 无法读取。',
     IO_ERROR: '读取文件基本信息时遇到问题，请稍后重试。',
+    INTERNAL_ERROR: '扫描遇到内部问题，已停止并保留完整诊断日志。',
     SCAN_ALREADY_ACTIVE: '已有扫描正在进行，请先等待或取消当前扫描。',
   }[code ?? ''] ?? '扫描没有完成。你可以稍后重试，并在技术详情中查看错误信息。'
 }

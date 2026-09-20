@@ -36,7 +36,7 @@ test('recommendation wording keeps risk, confidence, coverage and scope distinct
   assert.equal(categoryLabel('crash_dump'), '崩溃转储')
   assert.match(actionLabel('system_managed'), /不建议手动处理/)
   assert.match(actionLabel('review_for_cleanup'), /人工评估/)
-  assert.match(coverageMessage('limited'), /部分位置未能扫描/)
+  assert.match(coverageMessage('limited'), /部分内容未能完整读取/)
   assert.equal(coverageMessage('complete'), '')
   assert.match(topKMessage, /不代表所有文件都可处理/)
 })
