@@ -41,3 +41,8 @@ class ScanResult:
     persisted_file_count: int = 0
     observed_file_count: int = 0
     file_metadata_coverage: str = "limited"
+    triage_files: list[object] = field(default_factory=list)
+    triage_observed_count: int = 0
+    triage_persisted_count: int = 0
+    triage_coverage: str | None = None
+    triage_index_limit: int = 0

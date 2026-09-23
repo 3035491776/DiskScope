@@ -13,6 +13,7 @@ from app.cleanup.policy import (
     BLOCKED_EXTENSIONS, POLICY_EVALUATION_ERROR, PROTECTED_NAMES, PROTECTED_ROOTS,
     REPARSE_FLAG, ExecutionPolicyEngine, _parts,
 )
+from app.cleanup.categories import REVIEW_ROOTS
 from app.intelligence.store import CandidateNotFound
 from app.snapshots.store import SnapshotStore, snapshot_store
 
@@ -22,11 +23,13 @@ REVIEW_REQUIRED = "REVIEW_REQUIRED"
 DO_NOT_TOUCH = "DO_NOT_TOUCH"
 REVIEW_POLICY_ID = "USER_PROFILE_MANUAL_REVIEW_V1"
 REVIEW_POLICY_VERSION = "review-policy-v1.0.0"
-REVIEW_ROOTS = frozenset({"downloads", "desktop", "documents", "videos", "pictures", "music"})
 
 
-def _mtime(info: os.stat_result) -> str:
-    return datetime.fromtimestamp(info.st_mtime, timezone.utc).isoformat()
+def _mtime(info: os.stat_result) -> str | None:
+    try:
+        return datetime.fromtimestamp(info.st_mtime, timezone.utc).isoformat()
+    except (OSError, OverflowError, ValueError):
+        return None
 
 
 class ManualReviewPolicy:
@@ -237,6 +240,35 @@ class CleanupClassificationService:
         }
 
     def candidate(self, candidate_id: str, scope_key: str) -> dict[str, object]:
+        if candidate_id.startswith("triage:"):
+            try:
+                row_id = int(candidate_id.removeprefix("triage:"))
+            except ValueError as exc:
+                raise CandidateNotFound(candidate_id) from exc
+            with self.snapshots._connection() as connection:
+                row = connection.execute("""SELECT t.*, s.root_path, s.scope_key,
+                    CASE WHEN EXISTS(SELECT 1 FROM cleanup_batch_items bi
+                        WHERE bi.candidate_id=? AND bi.execute_result='recycled')
+                        THEN 'recycled' ELSE 'available' END AS execution_state
+                    FROM triage_files t JOIN scan_snapshots s ON s.id=t.snapshot_id
+                    WHERE t.id=? AND s.scope_key=? AND t.snapshot_id=(
+                        SELECT id FROM scan_snapshots WHERE scope_key=?
+                        ORDER BY completed_at DESC, created_at DESC, id DESC LIMIT 1
+                    )""", (candidate_id, row_id, scope_key, scope_key)).fetchone()
+                if row is None:
+                    raise CandidateNotFound(candidate_id)
+                item = dict(row)
+                return {
+                    "candidate_id": candidate_id,
+                    "display_path": ntpath.join(str(item["root_path"]), str(item["relative_path"]).replace("/", "\\")),
+                    "relative_path": item["relative_path"], "object_type": "file",
+                    "logical_bytes": item["size_bytes"], "recorded_size": item["size_bytes"],
+                    "snapshot_mtime": item["mtime"], "title": item["name"],
+                    "category": item["category"], "risk_level": "review",
+                    "confidence": "medium", "reason_code": "TRIAGE_PERSONAL_FILE",
+                    "source_rule_id": "TRIAGE_PERSONAL_FILE_V1",
+                    "execution_state": item["execution_state"],
+                }
         _, candidates = self._latest(scope_key)
         item = next((item for item in candidates if item["candidate_id"] == candidate_id), None)
         if item is None:

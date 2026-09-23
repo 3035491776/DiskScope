@@ -89,8 +89,30 @@ class BoundedHybridFiles:
         self.size_quota = limit // 2
         self._size = TopKFiles(limit)
         self._oldest: list[_OldestItem] = []
+        # Most bounded scopes fit below their cap. Keep their insertion path O(1)
+        # and materialize heaps only after the first actual overflow.
+        self._all: list[FileMetadata] | None = []
+
+    def _promote_to_heaps(self) -> None:
+        assert self._all is not None
+        for file in self._all:
+            self._size.add(file)
+            try:
+                timestamp = datetime.fromisoformat(file.mtime.replace("Z", "+00:00")).timestamp()
+            except (OSError, OverflowError, ValueError):
+                continue
+            heapq.heappush(self._oldest, _OldestItem(timestamp, file))
+            if len(self._oldest) > self.limit:
+                heapq.heappop(self._oldest)
+        self._all = None
 
     def add(self, file: FileMetadata) -> bool:
+        if self._all is not None:
+            self._all.append(file)
+            valid = bool(file.mtime)
+            if len(self._all) > self.limit:
+                self._promote_to_heaps()
+            return valid
         self._size.add(file)
         try:
             timestamp = datetime.fromisoformat(file.mtime.replace("Z", "+00:00")).timestamp()
@@ -107,6 +129,14 @@ class BoundedHybridFiles:
         self, name: str, relative_path: str, parent: str, size_bytes: int,
         mtime_epoch: float, attributes: int | None,
     ) -> bool:
+        if self._all is not None:
+            mtime = safe_mtime_iso(mtime_epoch)
+            self._all.append(FileMetadata(
+                name, relative_path, parent, size_bytes, mtime or "", attributes,
+            ))
+            if len(self._all) > self.limit:
+                self._promote_to_heaps()
+            return mtime is not None
         size_accepts = self._size.accepts(size_bytes, relative_path)
         oldest_accepts = len(self._oldest) < self.limit
         if not oldest_accepts:
@@ -133,7 +163,10 @@ class BoundedHybridFiles:
                 heapq.heapreplace(self._oldest, item)
         return mtime is not None
 
-    def selected_files(self, observed_count: int) -> list[FileMetadata]:
+    def selected_files(self, observed_count: int, ordered: bool = True) -> list[FileMetadata]:
+        if self._all is not None:
+            return (sorted(self._all, key=lambda file: (-file.size_bytes, file.relative_path))
+                    if ordered else list(self._all))
         by_size = self._size.sorted_files()
         if observed_count <= self.limit:
             return by_size
@@ -149,4 +182,6 @@ class BoundedHybridFiles:
             if len(selected) >= self.limit:
                 break
             selected.setdefault(file.relative_path, file)
-        return sorted(selected.values(), key=lambda file: (-file.size_bytes, file.relative_path))
+        values = list(selected.values())
+        return (sorted(values, key=lambda file: (-file.size_bytes, file.relative_path))
+                if ordered else values)

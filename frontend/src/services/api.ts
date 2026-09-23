@@ -418,6 +418,86 @@ export interface CleanupCenterListing {
   truncated: Record<CleanupClassification, boolean>
 }
 
+export interface TriageFilters {
+  locations?: string[]
+  categories?: string[]
+  extensions?: string[]
+  minSize?: number
+  maxSize?: number
+  olderThanDays?: number
+  classifications?: CleanupClassification[]
+  search?: string
+  sort?: 'size_desc' | 'mtime_asc' | 'name_asc' | 'path_asc'
+  limit?: 25 | 50 | 100
+  offset?: number
+}
+
+export interface TriageItem {
+  item_id: string
+  candidate_id: string
+  relative_path: string
+  display_path: string
+  name: string
+  extension: string
+  size_bytes: number
+  logical_bytes: number
+  mtime: string | null
+  snapshot_mtime: string | null
+  age_days: number | null
+  category: string
+  category_label: string
+  location_group: string
+  classification: CleanupClassification
+  execution_state: 'available' | 'recycled'
+}
+
+export interface TriageListing {
+  scope_key: 'system_drive_c' | 'current_user_temp'
+  snapshot_id: string
+  index_available: boolean
+  message?: string
+  coverage: { observed_count: number; persisted_count: number; limit: number; status: 'complete' | 'limited' } | null
+  summary: Record<CleanupClassification, { count: number; bytes: number }>
+  matched_count: number
+  matched_bytes: number
+  items: TriageItem[]
+  facets: Record<string, Array<{ value: string; count: number; bytes: number }>>
+  smart_views: Array<{ key: string; label: string; count: number; bytes: number; filters: Record<string, string[] | number> }>
+  limit: number
+  offset: number
+  explicit_filter: boolean
+}
+
+function triageParams(
+  scopeKey: 'system_drive_c' | 'current_user_temp', filters: TriageFilters,
+): URLSearchParams {
+  const query = new URLSearchParams({ scope: scopeKey })
+  for (const value of filters.locations ?? []) query.append('location', value)
+  for (const value of filters.categories ?? []) query.append('category', value)
+  for (const value of filters.extensions ?? []) query.append('extension', value)
+  for (const value of filters.classifications ?? []) query.append('classification', value)
+  if (filters.minSize !== undefined) query.set('min_size', String(filters.minSize))
+  if (filters.maxSize !== undefined) query.set('max_size', String(filters.maxSize))
+  if (filters.olderThanDays !== undefined) query.set('older_than_days', String(filters.olderThanDays))
+  if (filters.search) query.set('search', filters.search)
+  if (filters.sort) query.set('sort', filters.sort)
+  if (filters.limit) query.set('limit', String(filters.limit))
+  if (filters.offset !== undefined) query.set('offset', String(filters.offset))
+  return query
+}
+
+export function getTriageFiles(
+  scopeKey: 'system_drive_c' | 'current_user_temp', filters: TriageFilters = {},
+): Promise<TriageListing> {
+  return apiJson(`/api/v1/cleanup/triage?${triageParams(scopeKey, filters)}`)
+}
+
+export function selectFilteredTriage(
+  scopeKey: 'system_drive_c' | 'current_user_temp', filters: TriageFilters,
+): Promise<{ item_ids: string[]; matched_count: number; matched_bytes: number }> {
+  return apiJson(`/api/v1/cleanup/triage/selection?${triageParams(scopeKey, filters)}`)
+}
+
 export interface PreparedCleanupBatch {
   batch_id: string
   execution_token: string | null

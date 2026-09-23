@@ -14,14 +14,15 @@ from app.scanner.models import ScanResult
 from app.snapshots.compare import compare_directories, compare_top_files, delta_ratio
 
 
-SCHEMA_VERSION = 7
+SCHEMA_VERSION = 8
 RETENTION_PER_SCOPE = 20
 DEFAULT_DATABASE = DATA_DIR / "diskscope.db"
 SUMMARY_COLUMNS = ("id AS snapshot_id, scan_id, scope_key, scope_label, status, "
                    "started_at, completed_at, duration_seconds, total_bytes, file_count, "
                    "directory_count, error_count, skipped_count, coverage, "
                    "file_persistence_mode, file_persistence_limit, persisted_file_count, "
-                   "observed_file_count, created_at")
+                   "observed_file_count, triage_index_version, triage_index_limit, "
+                   "triage_observed_count, triage_persisted_count, triage_coverage, created_at")
 
 
 class SnapshotStoreError(RuntimeError):
@@ -101,6 +102,9 @@ class SnapshotStore:
                 if version == 6:
                     self._migrate_v6_to_v7(connection)
                     version = 7
+                if version == 7:
+                    self._migrate_v7_to_v8(connection)
+                    version = 8
                 actual = {row[0] for row in connection.execute(
                     "SELECT name FROM sqlite_master WHERE type = 'table'"
                 )}
@@ -114,10 +118,15 @@ class SnapshotStore:
                 snapshot_columns = {row[1] for row in connection.execute(
                     "PRAGMA table_info(scan_snapshots)"
                 )}
+                snapshot_v8_columns = {"triage_index_version", "triage_index_limit",
+                                       "triage_observed_count", "triage_persisted_count",
+                                       "triage_coverage"}
                 if (version != SCHEMA_VERSION or "controlled_probes" not in actual or
                         not {"cleanup_batches", "cleanup_batch_items"} <= actual or
+                        "triage_files" not in actual or
                         not v5_columns <= execution_columns or
-                        not snapshot_v6_columns <= snapshot_columns):
+                        not snapshot_v6_columns <= snapshot_columns or
+                        not snapshot_v8_columns <= snapshot_columns):
                     raise SnapshotStoreError("SNAPSHOT_DATABASE_UNAVAILABLE")
             yield connection
         except sqlite3.Error as exc:
@@ -148,6 +157,11 @@ class SnapshotStore:
                 file_persistence_limit INTEGER NOT NULL,
                 persisted_file_count INTEGER NOT NULL,
                 observed_file_count INTEGER NOT NULL,
+                triage_index_version TEXT,
+                triage_index_limit INTEGER,
+                triage_observed_count INTEGER,
+                triage_persisted_count INTEGER,
+                triage_coverage TEXT CHECK(triage_coverage IN ('complete', 'limited')),
                 created_at TEXT NOT NULL)""")
             connection.execute("""CREATE TABLE directory_snapshots (
                 id INTEGER PRIMARY KEY, snapshot_id TEXT NOT NULL REFERENCES scan_snapshots(id)
@@ -168,6 +182,7 @@ class SnapshotStore:
             SnapshotStore._create_controlled_probe_table(connection)
             SnapshotStore._create_execution_table_v5(connection)
             SnapshotStore._create_batch_tables_v7(connection)
+            SnapshotStore._create_triage_table_v8(connection)
             connection.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
             connection.commit()
         except Exception:
@@ -415,6 +430,47 @@ class SnapshotStore:
             connection.rollback()
             raise
 
+    @staticmethod
+    def _create_triage_table_v8(connection: sqlite3.Connection) -> None:
+        connection.execute("""CREATE TABLE IF NOT EXISTS triage_files (
+            id INTEGER PRIMARY KEY, snapshot_id TEXT NOT NULL REFERENCES scan_snapshots(id)
+            ON DELETE CASCADE, relative_path TEXT NOT NULL, name TEXT NOT NULL,
+            extension TEXT NOT NULL, size_bytes INTEGER NOT NULL, mtime TEXT,
+            category TEXT NOT NULL, location_group TEXT NOT NULL,
+            safety_classification TEXT NOT NULL CHECK(safety_classification IN
+                ('SAFE_ACTIONABLE', 'REVIEW_REQUIRED', 'DO_NOT_TOUCH')),
+            attributes INTEGER, indexed_at TEXT NOT NULL,
+            UNIQUE(snapshot_id, relative_path))""")
+        connection.execute("CREATE INDEX IF NOT EXISTS triage_category_size ON triage_files(snapshot_id, category, size_bytes DESC)")
+        connection.execute("CREATE INDEX IF NOT EXISTS triage_location_size ON triage_files(snapshot_id, location_group, size_bytes DESC)")
+        connection.execute("CREATE INDEX IF NOT EXISTS triage_class_size ON triage_files(snapshot_id, safety_classification, size_bytes DESC)")
+        connection.execute("CREATE INDEX IF NOT EXISTS triage_mtime ON triage_files(snapshot_id, mtime)")
+
+    @staticmethod
+    def _migrate_v7_to_v8(connection: sqlite3.Connection) -> None:
+        try:
+            connection.execute("BEGIN IMMEDIATE")
+            if connection.execute("PRAGMA user_version").fetchone()[0] == 7:
+                existing = {row[1] for row in connection.execute(
+                    "PRAGMA table_info(scan_snapshots)"
+                )}
+                additions = (
+                    ("triage_index_version", "TEXT"),
+                    ("triage_index_limit", "INTEGER"),
+                    ("triage_observed_count", "INTEGER"),
+                    ("triage_persisted_count", "INTEGER"),
+                    ("triage_coverage", "TEXT CHECK(triage_coverage IN ('complete', 'limited'))"),
+                )
+                for name, declaration in additions:
+                    if name not in existing:
+                        connection.execute(f"ALTER TABLE scan_snapshots ADD COLUMN {name} {declaration}")
+                SnapshotStore._create_triage_table_v8(connection)
+                connection.execute("PRAGMA user_version = 8")
+            connection.commit()
+        except Exception:
+            connection.rollback()
+            raise
+
     def save(self, status: dict[str, object], result: ScanResult, root_path: Path) -> str:
         if status["state"] != "completed" or result.cancelled:
             raise ValueError("Only completed scans may be saved.")
@@ -429,14 +485,21 @@ class SnapshotStore:
                     (id, scan_id, scope_key, scope_label, root_path, status, started_at,
                      completed_at, duration_seconds, total_bytes, file_count, directory_count,
                      error_count, skipped_count, coverage, file_persistence_mode,
-                     file_persistence_limit, persisted_file_count, observed_file_count, created_at)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""", (
+                     file_persistence_limit, persisted_file_count, observed_file_count,
+                     triage_index_version, triage_index_limit, triage_observed_count,
+                     triage_persisted_count, triage_coverage, created_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""", (
                     snapshot_id, status["scan_id"], scope_key, scope_label, str(root_path),
                     "completed", status["started_at"], status["finished_at"],
                     int(status["elapsed_ms"]) / 1000, result.logical_bytes,
                     result.files_seen, result.dirs_seen, result.errors_count,
                     result.skipped_count, coverage, result.file_persistence_mode,
                     result.file_persistence_limit, len(result.top_files), result.files_seen,
+                    "personal-review-v1" if result.triage_coverage is not None else None,
+                    result.triage_index_limit or None,
+                    result.triage_observed_count if result.triage_coverage is not None else None,
+                    result.triage_persisted_count if result.triage_coverage is not None else None,
+                    result.triage_coverage,
                     created_at,
                 ))
                 connection.executemany("""INSERT INTO directory_snapshots
@@ -454,6 +517,16 @@ class SnapshotStore:
                     (snapshot_id, relative_path, name, size_bytes, mtime) VALUES (?, ?, ?, ?, ?)""", (
                     (snapshot_id, file.relative_path, file.name, file.size_bytes, file.mtime)
                     for file in result.top_files
+                ))
+                connection.executemany("""INSERT INTO triage_files
+                    (snapshot_id, relative_path, name, extension, size_bytes, mtime,
+                     category, location_group, safety_classification, attributes, indexed_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""", (
+                    (snapshot_id, file.relative_path, file.name, file.extension,
+                     file.size_bytes, file.mtime or None, file.category,
+                     file.location_group, file.safety_classification,
+                     file.attributes, created_at)
+                    for file in result.triage_files
                 ))
                 connection.execute("""DELETE FROM scan_snapshots WHERE id IN (
                     SELECT id FROM scan_snapshots WHERE scope_key = ?

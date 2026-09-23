@@ -7,6 +7,9 @@ from app.cleanup.diagnostics import InvalidDiagnosticsRequest, eligibility_diagn
 from app.cleanup.batch import batch_cleanup_service
 from app.cleanup.classification import cleanup_classifications
 from app.cleanup.service import CleanupError, cleanup_service
+from app.cleanup.triage import (
+    InvalidTriageQuery, TriageQuery, TriageSelectionError, triage_query_service,
+)
 from app.intelligence.store import CandidateNotFound, InvalidCandidateScope
 from app.security.session import require_local_origin, require_session
 from app.snapshots.store import SnapshotStoreError
@@ -61,7 +64,56 @@ def _error(exc: Exception) -> HTTPException:
         return HTTPException(status_code=400, detail=str(exc))
     if isinstance(exc, CandidateNotFound):
         return HTTPException(status_code=404, detail="CANDIDATE_OR_RUN_NOT_FOUND")
+    if isinstance(exc, TriageSelectionError):
+        return HTTPException(status_code=exc.status_code, detail=exc.code)
+    if isinstance(exc, InvalidTriageQuery):
+        return HTTPException(status_code=400, detail=str(exc))
     return HTTPException(status_code=503, detail="SNAPSHOT_DATABASE_UNAVAILABLE")
+
+
+def _triage_query(location: list[str], category: list[str], extension: list[str],
+                  min_size: int | None, max_size: int | None,
+                  older_than_days: int | None, classification: list[str],
+                  search: str, sort: str, limit: int, offset: int) -> TriageQuery:
+    return TriageQuery(tuple(location), tuple(category), tuple(extension), min_size,
+                       max_size, older_than_days, tuple(classification), search,
+                       sort, limit, offset)
+
+
+@router.get("/triage")
+def triage_files(
+    scope: str = "system_drive_c", location: list[str] = Query(default=[]),
+    category: list[str] = Query(default=[]), extension: list[str] = Query(default=[]),
+    min_size: int | None = Query(default=None, ge=0),
+    max_size: int | None = Query(default=None, ge=0),
+    older_than_days: int | None = Query(default=None, ge=0, le=36500),
+    classification: list[str] = Query(default=[]), search: str = Query(default="", max_length=200),
+    sort: str = "size_desc", limit: int = Query(50), offset: int = Query(0, ge=0, le=100000),
+) -> dict[str, object]:
+    try:
+        return triage_query_service.query(scope, _triage_query(
+            location, category, extension, min_size, max_size, older_than_days,
+            classification, search, sort, limit, offset))
+    except (InvalidTriageQuery, CandidateNotFound, SnapshotStoreError) as exc:
+        raise _error(exc) from exc
+
+
+@router.get("/triage/selection")
+def triage_selection(
+    scope: str = "system_drive_c", location: list[str] = Query(default=[]),
+    category: list[str] = Query(default=[]), extension: list[str] = Query(default=[]),
+    min_size: int | None = Query(default=None, ge=0),
+    max_size: int | None = Query(default=None, ge=0),
+    older_than_days: int | None = Query(default=None, ge=0, le=36500),
+    classification: list[str] = Query(default=[]), search: str = Query(default="", max_length=200),
+    sort: str = "size_desc",
+) -> dict[str, object]:
+    try:
+        return triage_query_service.select_filtered(scope, _triage_query(
+            location, category, extension, min_size, max_size, older_than_days,
+            classification, search, sort, 50, 0))
+    except (InvalidTriageQuery, TriageSelectionError, CandidateNotFound, SnapshotStoreError) as exc:
+        raise _error(exc) from exc
 
 
 @router.get("/eligibility/summary")

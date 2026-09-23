@@ -18,19 +18,32 @@ test('Cleanup Center exposes the three plain-language classifications', () => {
   assert.match(sidebar, /label: '清理空间'/)
 })
 
-test('safe supports bounded select-all while review requires individual selection', () => {
+test('safe supports bounded page selection while review requires an explicit filter', () => {
   assert.match(cleanup, /toggleAllSafe/)
   assert.match(cleanup, /全选当前列表/)
   assert.doesNotMatch(cleanup, /toggleAllReview/)
-  assert.match(cleanup, /不会默认选择，也不提供一键全选/)
+  assert.match(cleanup, /不会默认选择，也不提供无条件一键全选/)
+  assert.match(cleanup, /选择当前筛选结果/)
+  assert.match(cleanup, /activeUserFilter/)
   assert.match(cleanup, /我已经检查过所选文件，并确认不再需要/)
-  assert.match(cleanup, /confirmMode === 'review' && !reviewAcknowledged/)
+  assert.match(cleanup, /confirmMode==='review'&&!reviewAcknowledged/)
 })
 
 test('protected items have no checkbox or override action', () => {
   assert.match(cleanup, /v-if="activeTab !== 'protected'" class="cleanup-check"/)
-  assert.match(cleanup, /这些项目不会提供处理入口/)
+  assert.match(cleanup, /不提供勾选或强制处理入口/)
   assert.doesNotMatch(cleanup, /强制删除|永久删除所选/)
+})
+
+test('smart triage is server-filtered, paged, and reports bounded coverage', () => {
+  assert.match(cleanup, /快速找出值得检查的内容/)
+  assert.match(cleanup, /已扫描个人文件/)
+  assert.match(cleanup, /筛选结果不代表整个 C 盘的全部文件/)
+  assert.match(cleanup, /categoryOptions/)
+  assert.match(cleanup, /olderThanDays/)
+  assert.match(cleanup, /每页/)
+  assert.match(api, /\/api\/v1\/cleanup\/triage/)
+  assert.match(api, /matched_count/)
 })
 
 test('batch confirmation and partial result wording preserve Recycle Bin semantics', () => {
