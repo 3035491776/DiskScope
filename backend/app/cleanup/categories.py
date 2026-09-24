@@ -58,5 +58,15 @@ def category_for_name(name: str) -> str:
     return EXTENSION_CATEGORY.get(normalize_extension(name), "other")
 
 
+def extension_for_filename(name: str) -> str:
+    """Fast scanner path for a single filesystem name, not an arbitrary path."""
+    if name and (name[0].isspace() or name[-1].isspace()):
+        name = name.strip()
+    dot = name.rfind(".")
+    if dot < 0 or dot == len(name) - 1:
+        return ""
+    return name[dot:].casefold()
+
+
 def is_blocked_extension(extension: str) -> bool:
     return normalize_extension(extension) in BLOCKED_EXTENSIONS

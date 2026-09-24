@@ -1,8 +1,15 @@
 import heapq
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from typing import Protocol
 
 from app.scanner.models import FileMetadata
+
+
+class RankedFile(Protocol):
+    relative_path: str
+    size_bytes: int
+    mtime: str
 
 
 def safe_mtime_iso(mtime_epoch: float) -> str | None:
@@ -15,7 +22,7 @@ def safe_mtime_iso(mtime_epoch: float) -> str | None:
 
 @dataclass(slots=True)
 class _HeapItem:
-    file: FileMetadata
+    file: RankedFile
 
     def __lt__(self, other: "_HeapItem") -> bool:
         if self.file.size_bytes != other.file.size_bytes:
@@ -31,7 +38,7 @@ class TopKFiles:
         self.limit = limit
         self._heap: list[_HeapItem] = []
 
-    def add(self, file: FileMetadata) -> None:
+    def add(self, file: RankedFile) -> None:
         item = _HeapItem(file)
         if len(self._heap) < self.limit:
             heapq.heappush(self._heap, item)
@@ -58,7 +65,7 @@ class TopKFiles:
         ))
         return mtime is not None
 
-    def sorted_files(self) -> list[FileMetadata]:
+    def sorted_files(self) -> list[RankedFile]:
         return [
             item.file
             for item in sorted(
@@ -71,7 +78,7 @@ class TopKFiles:
 @dataclass(slots=True)
 class _OldestItem:
     mtime_epoch: float
-    file: FileMetadata
+    file: RankedFile
 
     def __lt__(self, other: "_OldestItem") -> bool:
         if self.mtime_epoch != other.mtime_epoch:
@@ -91,34 +98,42 @@ class BoundedHybridFiles:
         self._oldest: list[_OldestItem] = []
         # Most bounded scopes fit below their cap. Keep their insertion path O(1)
         # and materialize heaps only after the first actual overflow.
-        self._all: list[FileMetadata] | None = []
+        self._all: list[RankedFile] | None = []
+        self._all_mtimes: list[float | None] | None = []
 
     def _promote_to_heaps(self) -> None:
         assert self._all is not None
-        for file in self._all:
+        assert self._all_mtimes is not None
+        for file, timestamp in zip(self._all, self._all_mtimes, strict=True):
             self._size.add(file)
-            try:
-                timestamp = datetime.fromisoformat(file.mtime.replace("Z", "+00:00")).timestamp()
-            except (OSError, OverflowError, ValueError):
+            if timestamp is None:
                 continue
             heapq.heappush(self._oldest, _OldestItem(timestamp, file))
             if len(self._oldest) > self.limit:
                 heapq.heappop(self._oldest)
         self._all = None
+        self._all_mtimes = None
 
-    def add(self, file: FileMetadata) -> bool:
-        if self._all is not None:
-            self._all.append(file)
-            valid = bool(file.mtime)
-            if len(self._all) > self.limit:
-                self._promote_to_heaps()
-            return valid
-        self._size.add(file)
+    def add(self, file: RankedFile) -> bool:
         try:
             timestamp = datetime.fromisoformat(file.mtime.replace("Z", "+00:00")).timestamp()
         except (OSError, OverflowError, ValueError):
+            timestamp = None
+        return self.add_prepared(file, timestamp)
+
+    def add_prepared(self, file: RankedFile, mtime_epoch: float | None) -> bool:
+        """Add already validated metadata without repeating time conversion."""
+        if self._all is not None:
+            assert self._all_mtimes is not None
+            self._all.append(file)
+            self._all_mtimes.append(mtime_epoch)
+            if len(self._all) > self.limit:
+                self._promote_to_heaps()
+            return mtime_epoch is not None
+        self._size.add(file)
+        if mtime_epoch is None:
             return False
-        item = _OldestItem(timestamp, file)
+        item = _OldestItem(mtime_epoch, file)
         if len(self._oldest) < self.limit:
             heapq.heappush(self._oldest, item)
         elif self._oldest[0] < item:
@@ -131,12 +146,10 @@ class BoundedHybridFiles:
     ) -> bool:
         if self._all is not None:
             mtime = safe_mtime_iso(mtime_epoch)
-            self._all.append(FileMetadata(
+            file = FileMetadata(
                 name, relative_path, parent, size_bytes, mtime or "", attributes,
-            ))
-            if len(self._all) > self.limit:
-                self._promote_to_heaps()
-            return mtime is not None
+            )
+            return self.add_prepared(file, mtime_epoch if mtime is not None else None)
         size_accepts = self._size.accepts(size_bytes, relative_path)
         oldest_accepts = len(self._oldest) < self.limit
         if not oldest_accepts:
@@ -163,17 +176,18 @@ class BoundedHybridFiles:
                 heapq.heapreplace(self._oldest, item)
         return mtime is not None
 
-    def selected_files(self, observed_count: int, ordered: bool = True) -> list[FileMetadata]:
+    def selected_files(self, observed_count: int, ordered: bool = True) -> list[RankedFile]:
         if self._all is not None:
-            return (sorted(self._all, key=lambda file: (-file.size_bytes, file.relative_path))
-                    if ordered else list(self._all))
+            files = list(self._all)
+            return (sorted(files, key=lambda file: (-file.size_bytes, file.relative_path))
+                    if ordered else files)
         by_size = self._size.sorted_files()
         if observed_count <= self.limit:
             return by_size
         by_age = [item.file for item in sorted(
             self._oldest, key=lambda item: (item.mtime_epoch, item.file.relative_path)
         )]
-        selected: dict[str, FileMetadata] = {}
+        selected: dict[str, RankedFile] = {}
         for file in by_size[:self.size_quota]:
             selected[file.relative_path] = file
         for file in by_age[:self.limit - self.size_quota]:

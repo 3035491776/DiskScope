@@ -9,7 +9,7 @@ from pathlib import Path
 
 from app.cleanup.categories import (
     CATEGORY_LABELS, EXTENSION_CATEGORY, category_for_name, is_blocked_extension,
-    normalize_extension,
+    extension_for_filename, normalize_extension,
 )
 from app.cleanup.classification import (
     DO_NOT_TOUCH, REVIEW_REQUIRED, CleanupClassificationService, ManualReviewPolicy,
@@ -75,6 +75,10 @@ class SmartTriageTests(unittest.TestCase):
         self.assertEqual(category_for_name("README"), "other")
         self.assertEqual(category_for_name("sample.unlisted"), "other")
         self.assertEqual(normalize_extension(".ZIP"), ".zip")
+        self.assertEqual(extension_for_filename("archive.ZIP"), ".zip")
+        self.assertEqual(extension_for_filename("README"), "")
+        self.assertEqual(extension_for_filename("trailing."), "")
+        self.assertEqual(extension_for_filename(" archive.ZIP "), ".zip")
         self.assertTrue(all(value.startswith(".") for value in EXTENSION_CATEGORY))
 
     def test_canonical_deny_extensions_never_become_review_authority(self):
@@ -178,10 +182,10 @@ class SmartTriageTests(unittest.TestCase):
         invalid = next(item for item in selected if item.relative_path.endswith("f5.zip"))
         self.assertEqual(invalid.mtime, "")
 
-        for index in range(5000):
-            collector.add_observation("outside.bin", f"Windows/X{index}/outside.bin",
-                                      f"Windows/X{index}", 1, 1.0, 32)
-        self.assertLessEqual(len(collector._parent_locations), 4096)
+        collector.enter_directory("Windows/System32")
+        self.assertTrue(collector.add_observation(
+            "outside.bin", "Windows/System32/outside.bin", "Windows/System32", 1, 1.0, 32))
+        self.assertEqual(collector.observed_count, 6)
 
     def test_v7_to_v8_migration_integrity(self):
         with closing(sqlite3.connect(self.database)) as connection:

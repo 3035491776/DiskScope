@@ -20,31 +20,43 @@ from app.scanner.service import scan_fixture
 from app.snapshots.store import SnapshotStore
 
 
-def events(file_count: int):
-    yield DirectorySeen("", None)
-    yield DirectorySeen("Users", "")
-    yield DirectorySeen("Users/Test", "Users")
-    yield DirectorySeen("Users/Test/Downloads", "Users/Test")
-    directories = max(1, file_count // 100)
+def _branch_events(prefix: str, file_count: int, first_index: int):
+    directories = max(1, (file_count + 99) // 100) if file_count else 0
     for directory in range(directories):
-        parent = f"Users/Test/Downloads/d{directory:05d}"
-        yield DirectorySeen(parent, "Users/Test/Downloads")
-        start = directory * 100
-        for index in range(start, min(start + 100, file_count)):
+        parent = f"{prefix}/d{directory:05d}"
+        yield DirectorySeen(parent, prefix)
+        branch_start = directory * 100
+        for offset in range(branch_start, min(branch_start + 100, file_count)):
+            index = first_index + offset
             extension = (".mkv", ".zip", ".pdf", ".exe")[index % 4]
             name = f"file-{index:06d}{extension}"
             yield FileSeen(name, f"{parent}/{name}", parent, index * 4096,
                            1_600_000_000 + index, 32)
 
 
-def one(file_count: int, triage: bool):
+def events(file_count: int, review_percent: float = 100.0):
+    review_count = round(file_count * review_percent / 100)
+    other_count = file_count - review_count
+    yield DirectorySeen("", None)
+    yield DirectorySeen("Users", "")
+    yield DirectorySeen("Users/Test", "Users")
+    yield DirectorySeen("Users/Test/Downloads", "Users/Test")
+    yield from _branch_events("Users/Test/Downloads", review_count, 0)
+    if other_count:
+        yield DirectorySeen("Windows", "")
+        yield DirectorySeen("Windows/System32", "Windows")
+        yield from _branch_events("Windows/System32", other_count, review_count)
+
+
+def one(file_count: int, triage: bool, review_percent: float):
     monitor = ScanResourceMonitor()
     started = time.perf_counter()
     cpu_started = time.process_time()
     options = {"scope_key": "system_drive_c"}
     if triage:
         options["triage_root_map"] = {"downloads": "Users/Test/Downloads"}
-    with patch("app.scanner.service.enumerate_metadata", side_effect=lambda *_args, **_kwargs: events(file_count)):
+    with patch("app.scanner.service.enumerate_metadata",
+               side_effect=lambda *_args, **_kwargs: events(file_count, review_percent)):
         result = scan_fixture(Path("C:\\"), threading.Event(), **options)
     wall = time.perf_counter() - started
     cpu = time.process_time() - cpu_started
@@ -72,15 +84,19 @@ def main():
     parser.add_argument("--label", required=True)
     parser.add_argument("--sizes", default="10000,50000,100000")
     parser.add_argument("--runs", type=int, default=3)
+    parser.add_argument("--review-percent", type=float, default=100.0)
     args = parser.parse_args()
+    if not 0 <= args.review_percent <= 100:
+        parser.error("--review-percent must be between 0 and 100")
     triage = "triage_root_map" in inspect.signature(scan_fixture).parameters
-    output = {"label": args.label, "triage_enabled": triage, "results": {}}
+    output = {"label": args.label, "triage_enabled": triage,
+              "review_percent": args.review_percent, "results": {}}
     for file_count in [int(value) for value in args.sizes.split(",")]:
-        run_count = 2 if file_count >= 100_000 else args.runs
-        one(file_count, triage)  # warmup
+        run_count = args.runs
+        one(file_count, triage, args.review_percent)  # warmup
         rows, result = [], None
         for _ in range(run_count):
-            result, row = one(file_count, triage)
+            result, row = one(file_count, triage, args.review_percent)
             rows.append(row)
         persistence, db_size = persist(result, file_count)
         output["results"][str(file_count)] = {

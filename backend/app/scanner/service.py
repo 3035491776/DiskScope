@@ -40,6 +40,7 @@ def scan_fixture(
     )
     errors = ScanErrors()
     last_progress_items = 0
+    triage_directory_active = False
 
     def mark_limited(relative_path: str) -> None:
         parent = relative_path.rpartition("/")[0]
@@ -52,6 +53,7 @@ def scan_fixture(
     for event in enumerate_metadata(root, cancel, scope_key):
         if isinstance(event, DirectorySeen):
             aggregator.add_directory(event.relative_path, event.parent)
+            triage_directory_active = triage.enter_directory(event.relative_path)
             result.dirs_seen += 1
             items_seen = result.files_seen + result.dirs_seen
             if on_progress and (items_seen <= 32 or items_seen - last_progress_items >= 256):
@@ -63,10 +65,10 @@ def scan_fixture(
                 event.name, event.relative_path, event.parent, event.size_bytes,
                 event.mtime_epoch, event.attributes,
             )
-            triage_metadata_complete = triage.add_observation(
-                event.name, event.relative_path, event.parent, event.size_bytes,
+            triage_metadata_complete = (triage.add_current(
+                event.name, event.relative_path, event.size_bytes,
                 event.mtime_epoch, event.attributes,
-            )
+            ) if triage_directory_active else True)
             result.files_seen += 1
             result.logical_bytes += event.size_bytes
             if not top_metadata_complete or not triage_metadata_complete:

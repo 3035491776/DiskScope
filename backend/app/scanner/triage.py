@@ -6,11 +6,13 @@ import ntpath
 import os
 from dataclasses import dataclass
 from pathlib import Path
+from typing import cast
 
-from app.cleanup.categories import EXTENSION_CATEGORY, REVIEW_ROOTS, TRIAGE_INDEX_LIMIT, normalize_extension
+from app.cleanup.categories import (
+    EXTENSION_CATEGORY, REVIEW_ROOTS, TRIAGE_INDEX_LIMIT, extension_for_filename,
+)
 from app.cleanup.policy import BLOCKED_EXTENSIONS
-from app.scanner.models import FileMetadata
-from app.scanner.topk import BoundedHybridFiles
+from app.scanner.topk import BoundedHybridFiles, safe_mtime_iso
 
 
 @dataclass(frozen=True, slots=True)
@@ -52,38 +54,44 @@ class TriageCollector:
                       else _root_map(scan_root, user_profile)) if enabled else {}
         self._selector = BoundedHybridFiles(limit)
         self.observed_count = 0
-        self._parent_locations: dict[str, str | None] = {}
-        self._parent_cache_limit = 4096
+        self._current_parent: str | None = None
+        self._current_location: str | None = None
 
     def _location(self, normalized_path: str) -> str | None:
         return next((key for key, prefix in self.roots.items()
                      if not prefix or normalized_path == prefix or
                      normalized_path.startswith(prefix + "/")), None)
 
+    def enter_directory(self, relative_path: str) -> bool:
+        """Cache review-root context once for the directory's following file events."""
+        self._current_parent = relative_path
+        self._current_location = self._location(relative_path.casefold())
+        return self._current_location is not None
+
     def add_observation(self, name: str, relative_path: str, parent: str, size_bytes: int,
                         mtime_epoch: float, attributes: int | None) -> bool:
-        location = self._parent_locations.get(parent)
-        if parent not in self._parent_locations:
-            location = self._location(parent.casefold())
-            if len(self._parent_locations) >= self._parent_cache_limit:
-                self._parent_locations.clear()
-            self._parent_locations[parent] = location
+        if parent != self._current_parent:
+            self.enter_directory(parent)
+        return self.add_current(name, relative_path, size_bytes, mtime_epoch, attributes)
+
+    def add_current(self, name: str, relative_path: str, size_bytes: int,
+                    mtime_epoch: float, attributes: int | None) -> bool:
+        """Add a file after enter_directory established its inherited context."""
+        location = self._current_location
         if location is None:
             return True
         self.observed_count += 1
-        return self._selector.add_observation(
-            name, relative_path, parent, size_bytes, mtime_epoch, attributes)
+        mtime = safe_mtime_iso(mtime_epoch)
+        valid_epoch = mtime_epoch if mtime is not None else None
+        extension = extension_for_filename(name)
+        file = TriageFile(
+            relative_path, name, extension, size_bytes, mtime or "",
+            EXTENSION_CATEGORY.get(extension, "other"), location,
+            "DO_NOT_TOUCH" if extension in BLOCKED_EXTENSIONS else "REVIEW_REQUIRED",
+            attributes,
+        )
+        return self._selector.add_prepared(file, valid_epoch)
 
     def selected(self) -> list[TriageFile]:
-        selected: list[TriageFile] = []
-        for file in self._selector.selected_files(self.observed_count, ordered=False):
-            location = self._location(file.parent.casefold())
-            assert location is not None
-            extension = normalize_extension(file.name)
-            selected.append(TriageFile(
-                file.relative_path, file.name, extension, file.size_bytes, file.mtime,
-                EXTENSION_CATEGORY.get(extension, "other"), location,
-                "DO_NOT_TOUCH" if extension in BLOCKED_EXTENSIONS else "REVIEW_REQUIRED",
-                file.attributes,
-            ))
-        return selected
+        return cast(list[TriageFile], self._selector.selected_files(
+            self.observed_count, ordered=False))
